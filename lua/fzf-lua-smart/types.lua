@@ -1,0 +1,105 @@
+---@meta
+
+---@alias fzf_lua_smart.Pos { [1]: integer, [2]: integer } 1-based line, 0-based byte column
+---@class fzf_lua_smart.Item
+---@field text string Original matching text, never the display string
+---@field file? string
+---@field cwd? string
+---@field buf? integer
+---@field name? string
+---@field buftype? string
+---@field filetype? string
+---@field flags? string
+---@field info? table Buffer getbufinfo metadata, including lastused
+---@field recent? boolean
+---@field source_id integer Source index in multi
+---@field idx integer Candidate enumeration index after transform/dedup
+---@field score number
+---@field score_add? number
+---@field score_mul? number
+---@field frecency? number
+---@field pos? fzf_lua_smart.Pos
+---@field parent? fzf_lua_smart.Item
+---@field root? boolean
+---@field dir? boolean
+---@field [string] any Fields are available to field:query matching
+
+---@class fzf_lua_smart.MatcherConfig
+---@field fuzzy? boolean
+---@field smartcase? boolean
+---@field ignorecase? boolean
+---@field sort_empty? boolean
+---@field filename_bonus? boolean
+---@field file_pos? boolean Retained upstream option; ignored by the pinned matcher
+---@field cwd_bonus? boolean
+---@field frecency? boolean
+---@field history_bonus? boolean
+---@field regex? boolean Vim regex mode
+---@field sort? boolean
+---@field keep_parents? boolean
+---@field on_match? fun(matcher:fzf_lua_smart.Matcher, item:fzf_lua_smart.Item)
+---@field on_done? fun(matcher:fzf_lua_smart.Matcher)
+
+---@class fzf_lua_smart.FilterConfig
+---@field cwd? boolean|string
+---@field buf? boolean|integer
+---@field paths? table<string, boolean>
+---@field filter? fun(item:fzf_lua_smart.Item, filter:fzf_lua_smart.Filter):boolean
+---@field transform? fun(search:fzf_lua_smart.Search, filter:fzf_lua_smart.Filter):boolean? True forces finder refresh
+
+---@class fzf_lua_smart.Search
+---@field opts fzf_lua_smart.Config
+---@field closed boolean
+---@field filter fzf_lua_smart.Filter
+---@field matcher fzf_lua_smart.Matcher
+---@field cwd fun(self:fzf_lua_smart.Search):string
+---@field count fun(self:fzf_lua_smart.Search):integer
+---@field iter fun(self:fzf_lua_smart.Search):fun():fzf_lua_smart.Item?,integer? Last completed result order; yields item, index
+---@field find fun(self:fzf_lua_smart.Search, opts?:{refresh?:boolean})
+
+---@class fzf_lua_smart.Context
+---@field picker fzf_lua_smart.Search Search facade, NOT a Snacks Picker/UI object
+---@field filter fzf_lua_smart.Filter
+---@field meta table<string,any> Per-find shared transform state
+---@field async? table Scheduled task while collecting; resume/on_cancel available
+---@field cwd fun(self:fzf_lua_smart.Context):string
+---@field git_root fun(self:fzf_lua_smart.Context):string
+---@field opts fun(self:fzf_lua_smart.Context, opts?:table):table
+---@field clone fun(self:fzf_lua_smart.Context, opts?:table):fzf_lua_smart.Context
+
+---@alias fzf_lua_smart.Transform fun(item:fzf_lua_smart.Item, ctx:fzf_lua_smart.Context):fzf_lua_smart.Item|boolean|nil
+---@class fzf_lua_smart.SourceConfig
+---@field source? "buffers"|"recent"|"files"
+---@field hidden? boolean Files: include dotfiles; buffers: include unlisted
+---@field unloaded? boolean
+---@field current? boolean
+---@field nofile? boolean
+---@field modified? boolean
+---@field sort_lastused? boolean
+---@field filter? fzf_lua_smart.FilterConfig
+---@field [string] any Shared scanner options may be supplied at source level
+
+---@class fzf_lua_smart.Config: fzf-lua.config.Files
+---@field multi? ("buffers"|"recent"|"files"|fzf_lua_smart.SourceConfig)[]
+---@field finders? string[] Alias for multi
+---@field sources? table<string, fzf_lua_smart.SourceConfig>
+---@field matcher? fzf_lua_smart.MatcherConfig
+---@field sort? {fields?:(string|{name:string,desc:boolean,len?:boolean})[]}|fun(a:fzf_lua_smart.Item,b:fzf_lua_smart.Item):boolean
+---@field pattern? string|fun(search:fzf_lua_smart.Search):string
+---@field search? string|fun(search:fzf_lua_smart.Search):string
+---@field live? boolean
+---@field limit? integer
+---@field limit_live? integer Default 10000, exactly the pinned live finder default
+---@field filter? fzf_lua_smart.FilterConfig
+---@field transform? fzf_lua_smart.Transform|"unique_file"|"text_to_file"|false
+---@field ignored? boolean Alias for no_ignore
+---@field dirs? string[] Alias for search_paths
+---@field exclude? string[]
+---@field ft? string|string[] Extensions, not Neovim filetype detection
+---@field rtp? boolean
+---@field args? string[]
+---@field finder_cmd? "fd"|"fdfind"|"rg"|"find"
+---@field db? {sqlite3_path?:string}
+---@field line_query? boolean|fun(query:string):number?,string?
+---@field multiprocess? boolean|1 True offloads matching; false/1 run in main instance
+return {}

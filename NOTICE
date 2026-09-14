@@ -1,0 +1,15 @@
+fzf-lua-smart
+Original implementation Copyright (c) 2026 jy, MIT (LICENSE).
+
+This product includes modified portions of folke/snacks.nvim by Folke Lemaitre
+and contributors, pinned at 882c996cf28183f4d63640de0b4c02ec886d01f2,
+licensed under Apache License 2.0 (licenses/snacks-Apache-2.0.txt).
+Derived files carry source and modification notices. No Snacks runtime plugin
+is required or bundled.
+
+The Snacks score module identifies its fzf scoring provenance:
+https://github.com/junegunn/fzf/blob/master/src/algo/algo.go
+fzf is Copyright (c) 2013-2026 Junegunn Choi, MIT (licenses/fzf-MIT.txt).
+
+fzf-lua is a runtime dependency, not bundled. Integration baseline:
+05e44d38de0a79c11fba5f7bf8138791b1dbdd1e.

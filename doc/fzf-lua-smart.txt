@@ -1,0 +1,237 @@
+*fzf-lua-smart.txt*          Snacks search with the fzf-lua interface
+
+CONTENTS                                            *fzf-lua-smart*
+  1. Requirements and usage                         |fzf-lua-smart-usage|
+  2. Configuration                                  |fzf-lua-smart-config|
+  3. Search and compatibility                       |fzf-lua-smart-search|
+  4. Interface controls                            |fzf-lua-smart-interface|
+  5. Independent history                            |fzf-lua-smart-history|
+  6. Development                                    |fzf-lua-smart-development|
+
+==============================================================================
+1. Requirements and usage                           *fzf-lua-smart-usage*
+
+Requires Neovim >= 0.11, fzf >= 0.59, macOS/Linux, fzf-lua and one of fd,
+fdfind, rg or find. fzf-lua is the only mandatory plugin. Snacks is a pinned
+DEVELOPMENT dependency only. SQLite and icon providers are optional.
+Windows and skim are unsupported; no libraries are automatically downloaded.
+
+Add nicholasxjy/fzf-lua-smart to your plugin manager with dependency
+ibhagwan/fzf-lua, then: >lua
+    require("fzf-lua-smart").smart()
+    require("fzf-lua-smart").smart({ cwd = vim.fn.getcwd(), hidden = false })
+<
+Setup is optional. Repeating it replaces plugin defaults without duplicate
+resources; it never calls or overrides fzf-lua.setup(): >lua
+    require("fzf-lua-smart").setup({
+      matcher = { frecency = true, cwd_bonus = true, sort_empty = true },
+    })
+    require("fzf-lua-smart").smart(function()
+      return { query = "init.lua:12:3" }
+    end)
+<
+The return convention is fzf-lua's coroutine/command/options tuple. There is no
+FzfLua.smart registration and FzfLua.files is unchanged.
+
+Run :checkhealth fzf-lua-smart to inspect versions, finders and storage access.
+
+==============================================================================
+2. Configuration                                    *fzf-lua-smart-config*
+
+Priority, highest first:
+  call -> plugin setup -> current fzf-lua files/global/profile -> algorithm
+
+Native UI configuration, profiles, functions, false values and lists are handled
+by fzf-lua normalization. Caller tables are not modified. Algorithm lists
+(multi, sort.fields) replace lower-priority lists.
+
+Option                         Behavior
+------                         --------
+multi                          {"buffers", "recent", "files"}; names or
+                               {source="files", ...} records, only these names
+finders                        Alias for multi (actual pinned source uses multi)
+sources                        Per-source defaults/configuration
+matcher.fuzzy                  true
+matcher.smartcase              true
+matcher.ignorecase             true
+matcher.filename_bonus         true
+matcher.file_pos               Retained upstream no-op (see compatibility)
+matcher.cwd_bonus              true; adds 10 after base scoring
+matcher.frecency               true; adds 8*(1-1/(1+frecency))
+matcher.history_bonus          false
+matcher.sort_empty             true
+matcher.sort                   false disables comparator sorting
+matcher.regex                  Vim regex matching mode
+matcher.keep_parents           Parent propagation for transformed items
+matcher.on_match/on_done       Search callbacks, not UI lifecycle callbacks
+sort                           {fields={"score:desc", "#text", "idx"}} or less(a,b)
+sort.fields                    Strings or {name=..., desc=..., len=...} records
+pattern                        Initial matcher pattern, string/function
+query                          Initial input; wins over pattern (normal mode)
+                               or search (live mode)
+search                         Finder search, string/function
+live                           false; true routes input to finder search while
+                               pattern remains an independent matcher condition
+limit                          Optional finder limit; normal default unlimited
+limit_live                     Default 10000, as pinned Snacks; not a ranking cap
+filter.cwd                     boolean or directory
+filter.buf                     boolean/id; explicit id avoids pinned buf=true bug
+filter.paths                   Map of path prefix -> wanted boolean
+filter.filter                  Predicate(item, filter)
+filter.transform               (search, filter); true forces a refresh
+transform                      "unique_file" (default), "text_to_file", false,
+                               or function(item, ctx) returning item/false/nil
+hidden/follow/cwd               Shared fzf-lua options, including buffer meanings
+ignored/no_ignore              Same-layer no_ignore wins; alias normalized first
+dirs/search_paths              Same-layer search_paths wins; string/list
+rtp                            Append runtime roots, including lazy unloaded rtp
+exclude                        Backend exclusion patterns
+ft                             Extension string/list; not Vim filetype names
+args                           Extra argv entries (shell-escaped individually)
+finder_cmd                     fd/fdfind/rg/find executable selector
+cmd                            Complete shell command with native toggle flags
+raw_cmd                        Complete command, bypasses scan construction
+line_query                     Unspecified: Snacks parser; false: none;
+                               true/function: native line parser, exactly once
+file_ignore_patterns           Additional native fzf-lua filtering
+ignore_current_file/cwd_only    Additional native fzf-lua filtering
+db.sqlite3_path                Optional SQLite shared-library path
+multiprocess                   false/1: main scheduled matching; true: headless
+                               MessagePack matching worker with main control
+winopts/hls/prompt/icons        Native fzf-lua UI options
+formatter/path_shorten         Display only; identity stays reversible
+previewer/preview/actions       Native fzf-lua preview and file actions
+keymap                         Native UI bindings except reserved controls
+
+Source merge order: source defaults -> multi entry -> shared top-level options.
+Shared options win even over a source entry. Buffers also support unloaded,
+current, nofile, modified and sort_lastused. Recent excludes data/cache/state
+paths by default.
+
+Custom cmd/raw_cmd cannot safely be combined with explicit exclude, ft, rtp,
+args or finder_cmd; this raises a configuration error. Nonempty finder search
+with cmd is rejected; raw_cmd owns all enumeration. Ordinary matcher queries
+never become shell commands. Native base scan flags and fdfind-before-fd
+preference are preserved. Finder output is one filename per line.
+
+Callbacks use fzf_lua_smart.Item/Filter/Context annotations in types.lua. Items
+retain raw text/file/cwd/buf/info/recent/source_id/idx/pos and scoring fields.
+ctx exposes filter, shared per-find meta, cwd(), git_root(), opts(), clone()
+and its running task. ctx.picker is a SEARCH facade (opts/filter/matcher,
+cwd/count/iter/find/closed), not a Snacks Picker/window object. find() queues
+a refresh for the next native reload, without reentering callbacks. Configure UI
+callbacks through fzf-lua; Snacks window, preview and action APIs are unsupported.
+
+==============================================================================
+3. Search and compatibility                          *fzf-lua-smart-search*
+
+Snacks baseline: 882c996cf28183f4d63640de0b4c02ec886d01f2
+fzf-lua baseline: 05e44d38de0a79c11fba5f7bf8138791b1dbdd1e
+
+The matcher and comparator are ported, not approximated. Empty input still
+sorts. A complete, yielding STABLE sort covers every candidate. There is no
+implicit top-N ranking limit; explicit/live finder limits apply before ranking.
+
+IMPORTANT ORDER EXCEPTION: the pinned Snacks UI uses a capacity-1000 minheap
+(core/list.lua:97) and returns its unsorted item-array tail after the heap
+(list:get at line 354). This plugin deliberately sorts the complete result.
+Custom comparator ties retain enumeration order, not Snacks' unstable heap/
+table.sort tie order. Order parity means full logical comparator order, not
+literal Snacks UI tail order. Scores and positions remain aligned.
+
+fzf-lua defaults and independent history mean zero-argument launches need not
+match Snacks. Equal candidates/configuration/time/history are required for
+score parity. fzf-lua behavior wins for overlapping API options.
+
+Pinned quirks intentionally retained:
+- Matching and positions are byte-based; no Unicode case folding.
+- Fuzzy scoring repeatedly scans forward, despite an upstream backward-scan
+  comment. OR alternatives are entropy-ordered; highlights cover all matches.
+- cwd bonus is a raw prefix test: /work-other receives the /work bonus.
+- matcher.file_pos is not consulted upstream. Explicit line_query overrides
+  the location parser separately: false disables; true/function runs only the
+  native parser, without an fzf search() binding.
+- Filter:init uses M.current_buf for buf=true/0. Use an explicit buffer id.
+- Buffers match their id/name/filetype/buftype joined text, not just filenames.
+- Filter predicates apply at upstream source stages: buffers/recent, not a
+  universal files-source post-filter. Native fzf filters are additionally used.
+- Unique-file transformation keeps the first normalized path, not realpath.
+  Replacing transform replaces uniqueness.
+- Seeds do not persist. SQLite frecency caches are snapshots; KV caches share
+  their store. SQLite truncates deadlines, KV retains doubles.
+- Pure buffers-only synchronous sources ignore finder limits.
+- find reverses supplied roots and combines multiple extensions with AND.
+
+The full source/compatibility mapping is in doc/compatibility.md.
+
+==============================================================================
+4. Interface controls                              *fzf-lua-smart-interface*
+
+fzf only displays, accepts input and selects already-sorted rows. Owned controls:
+  --disabled, --no-sort, --read0, --print0, --delimiter, --with-nth,
+  start/change reload behavior.
+
+Native inherited sorting shortcuts are removed. Explicit enable-search,
+toggle-search, search, toggle-sort, change-nth, reload/reload-sync bindings and
+explicit sort/tac/filter/identity options are rejected. Ordinary UI bindings
+pass through. Do not request fzf's secondary matching or ordering.
+
+Ctrl-R refreshes (unless you supplied an action). Native hidden/ignore/follow
+actions return to smart, not files. Native reload actions force a fresh scan.
+Normal typing reuses candidates; live typing finds again only if transformed
+search/source changes. Work yields during scan/scoring/sorting/rendering;
+outdated generations and close/hide cancel tasks and processes.
+
+Resume with: >lua
+    require("fzf-lua-smart").smart({ resume = true })
+<
+FzfLua.resume and native hide/unhide also work. The resume key is fzf-lua-smart;
+files' resume data is not changed.
+
+A hidden transport field retains the complete native file/buffer/position
+record. Visible shortened/formatter text is never parsed to guess targets.
+Custom actions should use: >lua
+    local entry = require("fzf-lua.path").entry_to_file(line, opts)
+<
+Native edit/split/tab/quickfix/loclist/buffer actions and built-in/native previews
+use this decoder. Matcher highlights use fzf-lua colors only where source bytes
+can be mapped unambiguously. Custom formatter text is not guessed/highlighted.
+
+==============================================================================
+5. Independent history                              *fzf-lua-smart-history*
+
+Directory: stdpath("data")/fzf-lua-smart/
+  frecency.sqlite3  when the SQLite shared library can be loaded
+  frecency.dat      otherwise, LuaJIT string.buffer KV encoding
+
+No Snacks database is read, imported or written. No SQLite plugin is required.
+Frecency initializes on first enabled use, visits existing qualified buffers,
+and registers BufWinEnter. Floating previews, unlisted/non-file buffers and
+nonexistent paths are excluded. Selection has no separate duplicate visit.
+
+30-day half-life; one point per visit; upstream recent/buffer seeds. Cleanup
+retains 10000 highest-deadline entries (SQLite keeps cutoff ties). SQLite binds
+integer deadlines; KV preserves doubles. Errors/corruption yield one warning
+and session memory, not a silent destructive overwrite. KV writes atomically
+at exit and preserves the upstream newer-file guard.
+
+==============================================================================
+6. Development                                      *fzf-lua-smart-development*
+
+  scripts/bootstrap.sh
+  scripts/test.sh
+  nvim --headless -u tests/minimal.lua -l scripts/benchmark.lua
+
+Tests isolate XDG data, compare pinned upstream search/source/history behavior,
+and run real fzf terminal selection/preview/actions/resume/toggles/cancellation.
+Benchmarks report 10k/100k scan/match/sort/render time and timer responsiveness,
+with assertions against truncation and rescanning ordinary queries.
+
+CI: macOS/Linux x Neovim minimum/current x fzf minimum/current x fzf-lua pinned/
+main. Local measurements do not assert an unrun CI matrix is passing.
+
+Original code is MIT. Snacks-derived files are Apache-2.0 (the actual pinned
+license, not the original plan's MIT assumption). See LICENSE, NOTICE and
+licenses/. Explicitly update pins and rerun differential tests for upgrades.
+
+ vim:tw=78:ts=8:noet:ft=help:norl:

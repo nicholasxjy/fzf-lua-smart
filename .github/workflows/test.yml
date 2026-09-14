@@ -1,0 +1,39 @@
+name: test
+on: [push, pull_request]
+jobs:
+  integration:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        neovim: [v0.11.0, stable]
+        fzf: ['0.59.0', latest]
+        fzf-lua: [05e44d38de0a79c11fba5f7bf8138791b1dbdd1e, main]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rhysd/action-setup-vim@v1
+        with:
+          neovim: true
+          version: ${{ matrix.neovim }}
+      - uses: jdx/mise-action@v2
+        with:
+          tool_versions: |
+            fzf ${{ matrix.fzf }}
+            fd latest
+            ripgrep latest
+      - run: scripts/bootstrap.sh
+        env:
+          FZF_LUA_REF: ${{ matrix.fzf-lua }}
+      - run: scripts/test.sh
+      - name: Record 10k/100k responsiveness baseline
+        run: nvim --headless -u tests/minimal.lua -l scripts/benchmark.lua
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: JohnnyMorganz/stylua-action@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          version: latest
+          args: --check lua tests scripts/benchmark.lua
