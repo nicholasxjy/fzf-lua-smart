@@ -22,6 +22,19 @@ required; neither is downloaded by this plugin.
 }
 ```
 
+### [`vim.pack`](https://neovim.io/doc/user/pack.html#vim.pack) (Neovim 0.12+)
+
+```lua
+vim.pack.add({
+  "https://github.com/ibhagwan/fzf-lua",
+  "https://github.com/nicholasxjy/fzf-lua-smart",
+})
+
+vim.keymap.set("n", "<leader><space>", function()
+  require("fzf-lua-smart").smart()
+end, { desc = "Smart File Search" })
+```
+
 ```lua
 -- Optional. Does not call or replace fzf-lua.setup().
 require("fzf-lua-smart").setup({
