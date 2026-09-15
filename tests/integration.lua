@@ -173,3 +173,62 @@ test("real fzf hide/unhide resumes smart and closes resources", function()
     return o.__smart.closed
   end)
 end)
+
+test("real fzf match colors agree with files on both rows and update with the query", function()
+  vim.api.nvim_set_hl(0, "SmartIntegrationMatch", { fg = "#112233" })
+  local function cells(win, word)
+    local colors = {}
+    for row, line in ipairs(vim.api.nvim_buf_get_lines(win.fzf_bufnr, 0, -1, false)) do
+      local col = line:find(word, 1, true)
+      if col and line:find(".lua", 1, true) then
+        vim.cmd("redraw!")
+        local pos = vim.fn.screenpos(win.fzf_winid, row, col)
+        local cell = vim.api.nvim__inspect_cell(1, pos.row - 1, pos.col - 1)
+        eq(cell[1], word:sub(1, 1))
+        colors[#colors + 1] = cell[2].foreground
+      end
+    end
+    return colors
+  end
+  for _, smart in ipairs({ false, true }) do
+    local picker = smart and require("fzf-lua-smart").smart or require("fzf-lua").files
+    local _, _, o = picker({
+      cwd = fixture,
+      multi = { "files" },
+      raw_cmd = "printf '%s\\n' alpha.lua sub/init.lua",
+      file_icons = false,
+      matcher = { frecency = false },
+      query = smart and "file:lua" or "lua",
+      formatter = "path.filename_first",
+      path_shorten = 1,
+      previewer = false,
+      -- Split windows let the headless test inspect the actual terminal cells.
+      winopts = { split = "belowright new", treesitter = false },
+      fzf_colors = true,
+      hls = { fzf = { match = "SmartIntegrationMatch" } },
+    })
+    local win = require("fzf-lua.win").__SELF()
+    wait(function()
+      local lines = table.concat(vim.api.nvim_buf_get_lines(win.fzf_bufnr, 0, -1, false), "\n")
+      return lines:find("alpha.lua", 1, true) and lines:find("init.lua", 1, true)
+    end)
+    eq(cells(win, "lua"), { 0x112233, 0x112233 })
+    if smart then
+      send(win, "\21file:init")
+      wait(function()
+        return o.__smart.query == "file:init" and not o.__smart.sink
+      end)
+      wait(function()
+        return not table
+          .concat(vim.api.nvim_buf_get_lines(win.fzf_bufnr, 0, -1, false), "\n")
+          :find("alpha.lua", 1, true)
+      end)
+      eq(cells(win, "init"), { 0x112233 })
+      assert(cells(win, "lua")[1] ~= 0x112233, "old match colors must be removed on reload")
+    end
+    send(win, "\3")
+    wait(function()
+      return not vim.api.nvim_buf_is_valid(win.fzf_bufnr)
+    end)
+  end
+end)

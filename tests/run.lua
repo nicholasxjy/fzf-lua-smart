@@ -18,7 +18,7 @@ for _, file in ipairs({ "alpha.lua", "beta.txt", "sub/init.lua", ".hidden" }) do
 end
 vim.opt.runtimepath:append(vim.fn.getcwd() .. "/.deps/snacks.nvim")
 require("snacks")
-for _, name in ipairs({ "matcher", "sources", "config", "history", "engine", "integration" }) do
+for _, name in ipairs({ "matcher", "sources", "config", "history", "engine", "display", "integration" }) do
   dofile("tests/" .. name .. ".lua")
 end
 local errors = {}

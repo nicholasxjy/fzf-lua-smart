@@ -194,8 +194,10 @@ Custom actions should use: >lua
     local entry = require("fzf-lua.path").entry_to_file(line, opts)
 <
 Native edit/split/tab/quickfix/loclist/buffer actions and built-in/native previews
-use this decoder. Matcher highlights use fzf-lua colors only where source bytes
-can be mapped unambiguously. Custom formatter text is not guessed/highlighted.
+use this decoder. Matcher highlights use the native FzfLuaFzfMatch foreground
+(or hls.fzf.match / fzf_colors.hl), including the built-in path.filename_first
+and path.dirname_first formatters and shortened paths. Only visible source
+characters are highlighted. Custom formatter text is not guessed/highlighted.
 
 ==============================================================================
 5. Independent history                              *fzf-lua-smart-history*

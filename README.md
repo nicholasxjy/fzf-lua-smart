@@ -140,8 +140,11 @@ The `files` resume record is not overwritten.
 A hidden transport field contains the complete native file/buffer record;
 shortened text is never used to guess a target. Custom actions should decode
 with `require("fzf-lua.path").entry_to_file(line, opts)`, as native file actions
-do. Matcher highlights use fzf-lua colors and only unambiguously mapped
-characters. Custom formatter output is not guessed or highlighted.
+do. Matcher highlights use the native `FzfLuaFzfMatch` foreground (or your
+`hls.fzf.match` / `fzf_colors.hl` override), including the built-in
+`path.filename_first` and `path.dirname_first` formatters and shortened paths.
+Only visible source characters are highlighted; custom formatter output is
+not guessed or highlighted.
 
 Ordinary input reuses one asynchronous scan per opening/refresh. Live input
 rescans only if transformed finder search/source changes or refresh is forced.
