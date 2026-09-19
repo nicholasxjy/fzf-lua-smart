@@ -56,7 +56,8 @@ matcher.smartcase              true; lowercase queries ignore case, uppercase
                                queries are case-sensitive; overrides ignorecase
 matcher.ignorecase             true; used when smartcase is disabled
 matcher.filename_bonus         true
-matcher.file_pos               Retained upstream no-op (see compatibility)
+matcher.file_pos               true; false disables file:line[:col] parsing
+                               unless line_query supplies a native parser
 matcher.cwd_bonus              true; adds 10 after base scoring
 matcher.frecency               true; adds 8*(1-1/(1+frecency))
 matcher.history_bonus          false; history-style boundary weights, not frecency
@@ -92,8 +93,8 @@ args                           Extra argv entries (shell-escaped individually)
 finder_cmd                     fd/fdfind/rg/find executable selector
 cmd                            Complete shell command with native toggle flags
 raw_cmd                        Complete command, bypasses scan construction
-line_query                     Unspecified: Snacks parser; false: none;
-                               true/function: native line parser, exactly once
+line_query                     Unspecified: respects matcher.file_pos;
+                               false: none; true/function: native parser once
 file_ignore_patterns           Additional native fzf-lua filtering
 ignore_current_file/cwd_only    Additional native fzf-lua filtering
 db.sqlite3_path                Optional SQLite shared-library path
@@ -107,7 +108,9 @@ keymap                         Native UI bindings except reserved controls
 Matcher defaults follow Snacks smart, which enables cwd_bonus, frecency and
 sort_empty on top of the generic picker defaults. Set these three to false for
 the generic matcher configuration. All nine matcher factors accept explicit
-false values, subject to the upstream file_pos no-op noted above.
+false values. Nested/dotted matcher keys are supported in plugin setup/call
+options and fzf-lua defaults/files/profile configuration. Use these layers,
+not a top-level matcher key in fzf-lua.setup().
 
 Source merge order: source defaults -> multi entry -> shared top-level options.
 Shared options win even over a source entry. Buffers also support unloaded,
@@ -150,14 +153,16 @@ fzf-lua defaults and independent history mean zero-argument launches need not
 match Snacks. Equal candidates/configuration/time/history are required for
 score parity. fzf-lua behavior wins for overlapping API options.
 
+LOCATION PARSING CORRECTION: unlike upstream, matcher.file_pos=false disables
+file:line[:col] parsing. The suffix stays in the query and adds no jump position.
+Explicit line_query takes precedence: false disables; true/function runs only
+the native parser, without an fzf search() binding.
+
 Pinned quirks intentionally retained:
 - Matching and positions are byte-based; no Unicode case folding.
 - Fuzzy scoring repeatedly scans forward, despite an upstream backward-scan
   comment. OR alternatives are entropy-ordered; highlights cover all matches.
 - cwd bonus is a raw prefix test: /work-other receives the /work bonus.
-- matcher.file_pos is not consulted upstream. Explicit line_query overrides
-  the location parser separately: false disables; true/function runs only the
-  native parser, without an fzf search() binding.
 - Filter:init uses M.current_buf for buf=true/0. Use an explicit buffer id.
 - Buffers match their id/name/filetype/buftype joined text, not just filenames.
 - Filter predicates apply at upstream source stages: buffers/recent, not a

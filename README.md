@@ -55,6 +55,8 @@ All options below can be passed to `setup()` or `smart()`. `setup()` is optional
 
 Priority, highest first: **call options → plugin setup → effective fzf-lua files/global/profile options → algorithm defaults**. Explicit `false` values are preserved. Lists such as `multi` and `sort.fields` replace lower-priority lists.
 
+Matcher settings belong in `require("fzf-lua-smart").setup({ matcher = { ... } })` or `smart({ matcher = { ... } })`. When configuring fzf-lua instead, put them under `defaults.matcher` or `files.matcher`, not its top-level `matcher`. Nested tables and dotted keys such as `["matcher.fuzzy"] = false` are supported in these layers. These settings do not change the native `FzfLua.files` picker.
+
 ### Example
 
 This uses the default Snacks `smart` matcher, with explicit choices for filtering and scanning:
@@ -92,7 +94,7 @@ These defaults follow **Snacks `smart`**, which enables `cwd_bonus`, `frecency`,
 | `matcher.ignorecase` | boolean | `true` | Controls case-insensitive matching when `smartcase = false`. Matching is byte-based, not Unicode case folding. |
 | `matcher.sort_empty` | boolean | `true` | Rank candidates even with an empty query. `false` preserves candidate enumeration order for empty input. |
 | `matcher.filename_bonus` | boolean | `true` | Add a filename bonus of 6 for file items when no path separator follows the first matched byte. |
-| `matcher.file_pos` | boolean | `true` | Retained for upstream compatibility. The pinned parser supports locations but **does not consult this flag**; use `line_query` to control parsing. |
+| `matcher.file_pos` | boolean | `true` | Parse `file:line` and `file:line:col` locations. `false` treats the location suffix as query text. An explicit or inherited `line_query` setting takes precedence. |
 | `matcher.cwd_bonus` | boolean | `true` | Add 10 when the item's cwd matches or its full path starts with the picker cwd. This preserves upstream's raw-prefix behavior. |
 | `matcher.frecency` | boolean | `true` | Boost frequently/recently visited files using 30-day decay. Adds `8 * (1 - 1 / (1 + frecency))`. |
 | `matcher.history_bonus` | boolean | `false` | Use history-style boundary weights: whitespace/delimiter bonuses become 8/8 instead of 10/9. Does not read visit history or add a chronological score. |
@@ -151,12 +153,12 @@ Recent candidates combine session buffers and `vim.v.oldfiles`, skip nonexistent
 | `pattern` | string or function | `""` | Matcher pattern. A function receives the search facade and returns a string. |
 | `search` | string or function | `""` | Finder search, distinct from fuzzy matching. Backend pattern syntax applies. Functions receive the search facade. |
 | `live` | boolean | disabled | `true` sends typed input to the finder and rescans when its search changes; `pattern` remains an independent matcher condition. Normal typing only rematches existing candidates. |
-| `line_query` | boolean or function | unspecified/inherited | Unspecified uses the Snacks location parser; `false` disables it; `true` parses a trailing `:line`; a function `(query)` returns `(line, remaining_pattern)`. Native parsing replaces the Snacks parser rather than running both. |
+| `line_query` | boolean or function | unspecified/inherited | Unspecified uses the Snacks location parser when `matcher.file_pos` is enabled; `false` disables it; `true` parses a trailing `:line`; a function `(query)` returns `(line, remaining_pattern)`. Native parsing replaces the Snacks parser rather than running both. |
 | `limit` | integer | unlimited | Stop asynchronous candidate collection after this many accepted items in normal mode. This is not a top-N ranking limit. |
 | `limit_live` | integer | `10000` | Candidate collection limit in live mode. A purely synchronous buffers-only source ignores finder limits. |
 | `resume` | boolean | disabled | Restore the previous smart picker options/query using an independent resume key. |
 
-Default location parsing supports queries such as `init.lua:12` and `src/init.lua:12:3`. Lines are 1-based and Snacks columns are 0-based; the adapter converts them for native fzf-lua actions.
+Default location parsing supports queries such as `init.lua:12` and `src/init.lua:12:3`. Lines are 1-based and Snacks columns are 0-based; the adapter converts them for native fzf-lua actions. Unlike the pinned upstream parser, this plugin honors `matcher.file_pos = false`.
 
 ### Filtering
 

@@ -88,7 +88,7 @@ function M.resolve(value)
   local p = profile and require("fzf-lua.utils").load_profiles(profile, 1) or {}
   local native = vim.tbl_deep_extend("keep", {}, p, fzf.setup_opts)
   local global = M.layer(p.defaults or fzf.setup_opts.defaults)
-  local files = M.layer(native.files)
+  local files = vim.tbl_deep_extend("keep", M.layer(p.files), M.layer(fzf.setup_opts.files))
   -- Only inject fields whose alias resolution needs to happen before native merge.
   local aliases = vim.tbl_deep_extend("keep", {}, files, global)
   for _, key in ipairs({ "no_ignore", "search_paths", "multi" }) do
@@ -96,6 +96,8 @@ function M.resolve(value)
       input[key] = aliases[key]
     end
   end
+  -- Native normalization expands dotted keys only on call options, not inherited tables.
+  input.matcher = vim.tbl_deep_extend("keep", input.matcher or {}, files.matcher or {}, global.matcher or {})
   local line_query = input.line_query
   if line_query == nil then
     line_query = files.line_query

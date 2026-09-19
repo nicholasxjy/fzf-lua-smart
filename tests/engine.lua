@@ -278,6 +278,40 @@ test("line_query nil/false/true/function is handled once with native precedence"
   eq(e.results[1].pos, nil)
   e:close()
 end)
+test("file_pos switch works through setup, call overrides and workers without breaking line_query", function()
+  local C = require("fzf-lua-smart.config")
+  C.setup({ matcher = { file_pos = false } })
+  local base = { raw_cmd = "printf '%s\\n' alpha.lua alpha.lua:3:2" }
+  for _, remote in ipairs({ false, true }) do
+    local disabled = run(base, "alpha.lua:3:2", remote)
+    eq(#disabled.results, 1)
+    eq(disabled.results[1].file, "alpha.lua:3:2")
+    eq(disabled.results[1].pos, nil)
+    eq(disabled.matcher.file, nil)
+    disabled:close()
+    local enabled = run(vim.tbl_extend("force", {}, base, { matcher = { file_pos = true } }), "alpha.lua:3:2", remote)
+    eq(#enabled.results, 1)
+    eq(enabled.results[1].file, "alpha.lua")
+    eq(enabled.results[1].pos, { 3, 2 })
+    enabled:close()
+    local native = run(vim.tbl_extend("force", {}, base, { line_query = true }), "alpha.lua:3", remote)
+    eq(native.results[1].file, "alpha.lua")
+    eq(native.results[1].pos, { 3, 0 })
+    native:close()
+    local none = run(
+      vim.tbl_extend("force", {}, base, {
+        matcher = { file_pos = true },
+        line_query = false,
+      }),
+      "alpha.lua:3:2",
+      remote
+    )
+    eq(none.results[1].file, "alpha.lua:3:2")
+    eq(none.results[1].pos, nil)
+    none:close()
+  end
+  C.setup({})
+end)
 test("late reload after close is ignored rather than restarting cancelled work", function()
   local e = run_engine({ raw_cmd = "echo alpha.lua" })
   local scans = e.scans

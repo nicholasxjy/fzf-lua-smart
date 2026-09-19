@@ -18,9 +18,9 @@ ownership, not score/deadline/seed/visit calculation. Matcher UI execution was
 removed; the adapter schedules search and supplies callback context.
 
 `tests/matcher.lua` compares parsed modifiers, sets, exact numeric scores,
-Item mutations and byte positions for generic/`smart` defaults and every matcher
-factor toggled individually, with both file and non-file items and frozen
-frecency. It also compares full logical order of 3,000 history-boosted results.
+Item mutations and byte positions for generic/`smart` defaults and shared matcher
+factors toggled individually, with both file and non-file items and frozen
+frecency. Separate assertions cover the intentional `file_pos=false` correction. It also compares full logical order of 3,000 history-boosted results.
 `tests/config.lua` checks all nine defaults and setup/call overrides against
 upstream; `tests/engine.lua` compares scores, order and positions through query
 reloads in both the main process and worker, including empty-query restoration.
@@ -52,7 +52,19 @@ explicit `false`. `smartcase` takes precedence over `ignorecase`.
 `filename_bonus` adds 6 for file items when no path separator follows the first
 matched byte. `history_bonus` changes whitespace/delimiter boundary weights from
 10/9 to 8/8; it neither reads visit history nor adds a chronological score.
-See the preserved `file_pos` quirk below.
+Nested and dotted matcher keys are normalized before merging plugin, native
+files/defaults, and profile options, so lower-priority spellings cannot override
+higher-priority values.
+
+## Location parsing correction
+
+The pinned upstream parser ignores `matcher.file_pos`. This plugin intentionally
+honors `file_pos=false`: location suffixes remain query text and do not set a
+jump position. The default (`true`) retains upstream parsing, scoring and byte
+positions. Field queries such as `file:lua` still work when locations are off.
+Explicit native `line_query` takes precedence: false disables location parsing;
+true/function uses only the native parser. Main-process and worker tests cover
+these switches through setup and per-call overrides.
 
 ## Deliberate full-sort exception
 
@@ -75,10 +87,6 @@ upstream UI heap/tail. Scores and matcher positions remain exact.
 - UTF-8 matching uses bytes and Lua's case conversion, not Unicode case folding.
 - All OR alternatives contribute highlight positions, not only the alternative
   whose score was used; OR alternatives are tried in upstream entropy order.
-- `matcher.file_pos` is documented upstream but not consulted by its parser.
-  It remains ineffective when using the default Snacks parser. Explicit native
-  `line_query` takes precedence: false disables parsing; true/function uses
-  native parsing once. This gate is an adapter option, not an upstream bug fix.
 - The cwd bonus tests `path:find(cwd, 1, true) == 1`, without a separator boundary.
   `/work-other/x` therefore receives the `/work` bonus. `filter.cwd` *does* check
   path boundaries. The bonus is 10, applied after add/multiply and frecency.

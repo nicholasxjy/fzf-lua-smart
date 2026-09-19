@@ -151,6 +151,34 @@ test("real fzf input changes do not rescan; hidden toggle returns to smart", fun
     return current.__smart.closed
   end)
 end)
+test("real smart setup and call matcher overrides change results in both execution modes", function()
+  local smart = require("fzf-lua-smart")
+  smart.setup({ matcher = { fuzzy = false, smartcase = false, ignorecase = false, frecency = false } })
+  for _, remote in ipairs({ false, true }) do
+    for _, override in ipairs({ {}, { fuzzy = true } }) do
+      local _, _, opts = smart.smart({
+        cwd = fixture,
+        multi = { "files" },
+        raw_cmd = "printf '%s\\n' a_b.lua ab.lua Ab.lua",
+        query = "ab",
+        matcher = override,
+        multiprocess = remote,
+        file_icons = false,
+        previewer = false,
+      })
+      local win = ready(opts)
+      local files = vim.tbl_map(function(item)
+        return item.file
+      end, opts.__smart.results)
+      eq(files, override.fuzzy and { "ab.lua", "a_b.lua" } or { "ab.lua" })
+      send(win, "\3")
+      wait(function()
+        return opts.__smart.closed
+      end)
+    end
+  end
+  smart.setup({})
+end)
 test("real fzf hide/unhide resumes smart and closes resources", function()
   local _, _, o = require("fzf-lua-smart").smart({
     cwd = fixture,

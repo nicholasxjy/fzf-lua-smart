@@ -30,7 +30,7 @@
 ---@field ignorecase? boolean
 ---@field sort_empty? boolean
 ---@field filename_bonus? boolean
----@field file_pos? boolean Retained upstream option; ignored by the pinned matcher
+---@field file_pos? boolean Parse file:line[:col]; default true, overridden by explicit line_query
 ---@field cwd_bonus? boolean
 ---@field frecency? boolean
 ---@field history_bonus? boolean

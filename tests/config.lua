@@ -14,6 +14,45 @@ test("smart matcher defaults and all nine overrides agree with Snacks", function
   end
   C.setup({})
 end)
+test("native dotted matcher options survive inheritance and partial overrides", function()
+  local fzf = require("fzf-lua")
+  local defaults = C.algorithm_defaults().matcher
+  for _, layer in ipairs({ "defaults", "files" }) do
+    for key, value in pairs(defaults) do
+      fzf.setup({ [layer] = { ["matcher." .. key] = not value } })
+      eq(C.resolve({}).matcher, vim.tbl_extend("force", {}, defaults, { [key] = not value }), layer .. "." .. key)
+    end
+  end
+  fzf.setup({
+    defaults = { ["matcher.fuzzy"] = false, matcher = { smartcase = false } },
+    files = { matcher = { fuzzy = true }, ["matcher.ignorecase"] = false },
+  })
+  C.setup({ matcher = { filename_bonus = false } })
+  local opts = C.resolve({ matcher = { history_bonus = true } })
+  eq(
+    opts.matcher,
+    vim.tbl_extend("force", {}, defaults, {
+      fuzzy = true,
+      smartcase = false,
+      ignorecase = false,
+      filename_bonus = false,
+      history_bonus = true,
+    })
+  )
+  eq(C.resolve({ ["matcher.fuzzy"] = false }).matcher.fuzzy, false)
+  C.setup({})
+  fzf.setup({ files = { ["matcher.fuzzy"] = true } })
+  local utils = require("fzf-lua.utils")
+  local load_profiles = utils.load_profiles
+  utils.load_profiles = function()
+    return { files = { matcher = { fuzzy = false } } }
+  end
+  local ok, profiled = pcall(C.resolve, { profile = "matcher-test" })
+  utils.load_profiles = load_profiles
+  assert(ok, profiled)
+  eq(profiled.matcher.fuzzy, false, "profile wins over lower-priority dotted keys")
+  fzf.setup({})
+end)
 test("config precedence, aliases, lists, false, functions and non-mutation", function()
   local fzf = require("fzf-lua")
   fzf.setup({

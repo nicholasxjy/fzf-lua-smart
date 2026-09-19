@@ -1,6 +1,6 @@
 -- Derived from folke/snacks.nvim, commit 882c996cf28183f4d63640de0b4c02ec886d01f2.
 -- Apache-2.0; see licenses/snacks-Apache-2.0.txt.
--- Modified: standalone module names and search-only host integration.
+-- Modified: standalone module names, search-only integration, and file_pos/line_query gates.
 local Async = require("fzf-lua-smart.task")
 
 ---@class fzf_lua_smart.Item
@@ -188,7 +188,7 @@ function M:_prepare(pattern)
       "^(.+%.[a-z_]+):(%d*)$",
     }
 
-    for _, p in ipairs(self.opts._file_pos_disabled and {} or file_patterns) do
+    for _, p in ipairs((self.opts.file_pos == false or self.opts._file_pos_disabled) and {} or file_patterns) do
       local file, line, col = pattern:match(p)
       if file then
         mods.field = "file"

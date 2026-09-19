@@ -78,14 +78,16 @@ test("matcher differential: queries, scores, fields, file positions and byte hig
     { filename_bonus = false, history_bonus = true },
     { cwd_bonus = true },
     { regex = true },
-    { file_pos = false },
   }
   local generic = require("snacks.picker.config.defaults").defaults.matcher
   local smart = vim.tbl_deep_extend("force", {}, generic, require("snacks.picker.config.sources").smart.matcher)
   combinations[#combinations + 1] = generic
   combinations[#combinations + 1] = smart
   for _, key in ipairs(vim.fn.sort(vim.tbl_keys(smart))) do
-    combinations[#combinations + 1] = vim.tbl_extend("force", {}, smart, { [key] = not smart[key] })
+    -- file_pos=false intentionally fixes an upstream no-op; tested separately below.
+    if key ~= "file_pos" then
+      combinations[#combinations + 1] = vim.tbl_extend("force", {}, smart, { [key] = not smart[key] })
+    end
   end
   local history = {
     get = function(_, item)
@@ -148,14 +150,29 @@ test("sort differential: complete order, booleans, missing fields and raw text l
     eq(a, b)
   end
 end)
-test("matcher pinned quirks: cwd prefix and file_pos=false still parses locations", function()
-  local m = port.new({ frecency = false, cwd_bonus = true, file_pos = false })
+test("matcher pinned quirk: cwd bonus uses a raw path prefix", function()
+  local m = port.new({ frecency = false, cwd_bonus = true })
   m.cwd = "/work"
   local item = { text = "/work-other/x", file = "/work-other/x" }
   m:update({}, item)
   eq(item.score, 1010)
-  m:init("x.lua:3:2")
-  eq(m.file.pos, { 3, 2 })
+end)
+test("file_pos=false disables location syntax but preserves literal and field matching", function()
+  for _, opts in ipairs({ {}, { file_pos = true }, { file_pos = false } }) do
+    local m = port.new(opts)
+    for _, query in ipairs({ "init.lua:3", "src/init.lua:3:2" }) do
+      m:init(query)
+      if opts.file_pos == false then
+        eq(m.file, nil)
+        eq(m:match({ text = "src/init.lua", file = "src/init.lua" }), 0)
+        assert(m:match({ text = query, file = query }) > 0)
+      else
+        assert(m.file and m:match({ text = "src/init.lua", file = "src/init.lua" }) > 0)
+      end
+    end
+    m:init("file:lua")
+    assert(m:match({ text = "other", file = "init.lua" }) > 0)
+  end
 end)
 test("full logical sort differential with >1000 entries and frozen frecency", function()
   local a = port.new({ frecency = false, cwd_bonus = true, filename_bonus = true })
