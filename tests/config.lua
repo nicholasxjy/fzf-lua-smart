@@ -1,4 +1,19 @@
 local C = require("fzf-lua-smart.config")
+test("smart matcher defaults and all nine overrides agree with Snacks", function()
+  local generic = require("snacks.picker.config.defaults").defaults.matcher
+  local smart = vim.tbl_deep_extend("force", {}, generic, require("snacks.picker.config.sources").smart.matcher)
+  eq(C.algorithm_defaults().matcher, smart)
+  eq(C.resolve({}).matcher, smart)
+  eq(C.resolve({ matcher = generic }).matcher, generic)
+  eq(C.algorithm_defaults().sort, require("snacks.picker.config.defaults").defaults.sort)
+  eq(vim.tbl_count(smart), 9)
+  for key, value in pairs(smart) do
+    C.setup({ matcher = { [key] = not value } })
+    eq(C.resolve({}).matcher, vim.tbl_extend("force", {}, smart, { [key] = not value }), key .. " setup")
+    eq(C.resolve({ matcher = { [key] = value } }).matcher, smart, key .. " call")
+  end
+  C.setup({})
+end)
 test("config precedence, aliases, lists, false, functions and non-mutation", function()
   local fzf = require("fzf-lua")
   fzf.setup({

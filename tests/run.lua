@@ -13,6 +13,8 @@ _G.wait = function(fn, ms)
 end
 _G.fixture = vim.fn.tempname()
 vim.fn.mkdir(fixture .. "/sub", "p")
+-- Neovim resolves macOS /var symlinks in buffer names and frecency keys.
+_G.fixture = assert(vim.uv.fs_realpath(fixture))
 for _, file in ipairs({ "alpha.lua", "beta.txt", "sub/init.lua", ".hidden" }) do
   vim.fn.writefile({ "one", "two", "three" }, fixture .. "/" .. file)
 end

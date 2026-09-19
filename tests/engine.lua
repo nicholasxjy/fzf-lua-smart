@@ -124,6 +124,75 @@ test("multiprocess snapshot matches main process score/order/positions", functio
   a:close()
   b:close()
 end)
+test("smart matcher factors agree with Snacks through main and worker query reloads", function()
+  local smart = require("fzf-lua-smart.config").algorithm_defaults().matcher
+  local presets = {
+    smart,
+    require("snacks.picker.config.defaults").defaults.matcher,
+    vim.tbl_extend("force", {}, smart, {
+      fuzzy = false,
+      smartcase = false,
+      ignorecase = false,
+      filename_bonus = false,
+      history_bonus = true,
+    }),
+  }
+  for _, options in ipairs(presets) do
+    for _, remote in ipairs({ false, true }) do
+      local e = run({
+        raw_cmd = "printf '%s\\n' outside.lua very-long-name.lua alpha.lua sub/init.lua src/Init.lua camelCase123.lua camel_case123.lua",
+        matcher = options,
+        transform = function(item)
+          item.frecency = #item.file / 10 -- identical cached history in both implementations
+          if item.file == "outside.lua" then
+            item.cwd = fixture .. "/../elsewhere"
+          end
+        end,
+      }, "", remote)
+      eq(e.matcher.frecency ~= nil, options.frecency)
+      local reference =
+        require("snacks.picker.core.matcher").new(vim.tbl_extend("force", {}, options, { frecency = false }))
+      reference.cwd = e.matcher.cwd
+      reference.frecency = options.frecency
+          and {
+            get = function(_, item)
+              return item.frecency
+            end,
+          }
+        or nil
+      local items = vim.deepcopy(e.items)
+      for _, query in ipairs({ "", "lua", "Init", "init", "cc123", "file:lua !^src", "sub/init.lua:3:2", "" }) do
+        reference:init(query)
+        local expected = {}
+        for _, item in ipairs(items) do
+          if reference:update({}, item) then
+            expected[#expected + 1] = item
+          end
+        end
+        local sorting = not reference:empty() or options.sort_empty
+        if sorting then
+          table.sort(expected, require("snacks.picker.sort").default(e.opts.sort))
+        end
+        local done = false
+        e:request(query, function(s)
+          done = s == nil
+        end)
+        wait(function()
+          return done
+        end)
+        eq(e.matcher.sorting, sorting)
+        eq(#e.results, #expected, query)
+        for i, item in ipairs(expected) do
+          local actual = e.results[i]
+          eq({ actual.idx, actual.score, actual.pos }, { item.idx, item.score, item.pos }, query)
+          eq(e.matcher:positions(actual), reference:positions(item), query .. " highlights")
+        end
+      end
+      eq(e.scans, 1)
+      e:close()
+    end
+  end
+end)
 test("generation cancels stale matches and close cancels scanning process", function()
   local e = run({ raw_cmd = "printf '%s\\n' alpha.lua beta.txt" })
   local old, done = 0, false

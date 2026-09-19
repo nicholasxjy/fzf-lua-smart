@@ -18,12 +18,41 @@ ownership, not score/deadline/seed/visit calculation. Matcher UI execution was
 removed; the adapter schedules search and supplies callback context.
 
 `tests/matcher.lua` compares parsed modifiers, sets, exact numeric scores,
-Item mutations and byte positions for 7,659 combinations, then compares full
-logical order of 3,000 history-boosted results. `tests/sources.lua` compares raw
-buffer/recent metadata, filtering and unique-file behavior against upstream.
+Item mutations and byte positions for generic/`smart` defaults and every matcher
+factor toggled individually, with both file and non-file items and frozen
+frecency. It also compares full logical order of 3,000 history-boosted results.
+`tests/config.lua` checks all nine defaults and setup/call overrides against
+upstream; `tests/engine.lua` compares scores, order and positions through query
+reloads in both the main process and worker, including empty-query restoration.
+`tests/sources.lua` compares raw buffer/recent metadata, filtering and unique-file
+behavior against upstream.
 `tests/history.lua` compares fixed-clock decay/seed/visit operations and tests
 both persistence representations. Engine and real terminal tests cover the
 fzf boundary independently.
+
+## Matcher defaults
+
+The algorithm defaults match `picker/config/defaults.lua` merged with
+`picker/config/sources.lua:smart`, not the generic picker table alone:
+
+| Factor | Generic picker | `smart` / this plugin |
+| --- | --- | --- |
+| `fuzzy` | `true` | `true` |
+| `smartcase` | `true` | `true` |
+| `ignorecase` | `true` | `true` |
+| `sort_empty` | `false` | `true` |
+| `filename_bonus` | `true` | `true` |
+| `file_pos` | `true` | `true` |
+| `cwd_bonus` | `false` | `true` |
+| `frecency` | `false` | `true` |
+| `history_bonus` | `false` | `false` |
+
+Every factor can be overridden through setup or per-call options, including
+explicit `false`. `smartcase` takes precedence over `ignorecase`.
+`filename_bonus` adds 6 for file items when no path separator follows the first
+matched byte. `history_bonus` changes whitespace/delimiter boundary weights from
+10/9 to 8/8; it neither reads visit history nor adds a chronological score.
+See the preserved `file_pos` quirk below.
 
 ## Deliberate full-sort exception
 

@@ -8,6 +8,8 @@ local queries = {
   "init",
   "Init",
   "FOO",
+  "cC123",
+  "cc123",
   "^foo",
   "foo$",
   "'foo",
@@ -45,6 +47,8 @@ local texts = {
   "Foo",
   "FOO",
   "fooBar",
+  "camelCase123.lua",
+  "camel_case123.lua",
   "foo bar",
   "foobar",
   "bar foo",
@@ -76,10 +80,26 @@ test("matcher differential: queries, scores, fields, file positions and byte hig
     { regex = true },
     { file_pos = false },
   }
+  local generic = require("snacks.picker.config.defaults").defaults.matcher
+  local smart = vim.tbl_deep_extend("force", {}, generic, require("snacks.picker.config.sources").smart.matcher)
+  combinations[#combinations + 1] = generic
+  combinations[#combinations + 1] = smart
+  for _, key in ipairs(vim.fn.sort(vim.tbl_keys(smart))) do
+    combinations[#combinations + 1] = vim.tbl_extend("force", {}, smart, { [key] = not smart[key] })
+  end
+  local history = {
+    get = function(_, item)
+      return item.idx % 23 / 7
+    end,
+  }
   local count = 0
   for _, options in ipairs(combinations) do
-    options.frecency = false
-    local a, b = port.new(options), upstream.new(options)
+    -- Freeze history for score comparisons; real decay/storage is tested separately.
+    local config = vim.tbl_extend("force", {}, options, { frecency = false })
+    local a, b = port.new(config), upstream.new(config)
+    if options.frecency then
+      a.frecency, b.frecency = history, history
+    end
     a.cwd, b.cwd = "/work", "/work"
     for _, query in ipairs(queries) do
       a:init(query)
@@ -96,11 +116,15 @@ test("matcher differential: queries, scores, fields, file positions and byte hig
           score_add = i % 3 == 0 and 1.5 or nil,
           score_mul = i % 4 == 0 and 0.75 or nil,
         }
-        local ia, ib = vim.deepcopy(item), vim.deepcopy(item)
-        eq(a:update({}, ia), b:update({}, ib), query .. " / " .. text)
-        eq(ia, ib, query .. " item / " .. text)
-        eq(a:positions(ia), b:positions(ib), query .. " positions / " .. text)
-        count = count + 1
+        for _, is_file in ipairs({ true, false }) do
+          item.file = is_file and text or nil
+          local ia, ib = vim.deepcopy(item), vim.deepcopy(item)
+          local label = query .. " / " .. text .. " / " .. vim.inspect(options) .. " / file=" .. tostring(is_file)
+          eq(a:update({}, ia), b:update({}, ib), label)
+          eq(ia, ib, label .. " item")
+          eq(a:positions(ia), b:positions(ib), label .. " positions")
+          count = count + 1
+        end
       end
     end
   end
