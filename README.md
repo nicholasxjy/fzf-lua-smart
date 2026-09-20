@@ -214,4 +214,4 @@ Native options are inherited from your effective fzf-lua configuration. The valu
 
 The plugin owns fzf matching, sorting, reloads and transport (`--disabled`, `--no-sort`, `--read0`, `--print0`, delimiter and hidden identity fields). Conflicting options or bindings such as `toggle-sort`, `enable-search`, and custom `reload` bindings are rejected. Native reload actions remain supported. `fn_reload`, `fn_transform`, `fn_preprocess`, and `fn_postprocess` are reserved; use `transform` for candidate changes.
 
-See `:help fzf-lua-smart` and [compatibility notes](doc/compatibility.md) for preserved upstream quirks and callback boundaries.
+See `:help fzf-lua-smart` and [compatibility notes](doc/compatibility.md) for preserved upstream quirks and callback boundaries. Reproducible benchmarks and optimization constraints are documented in [performance checks](doc/performance.md).

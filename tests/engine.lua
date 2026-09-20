@@ -117,6 +117,79 @@ test("keep_parents retains a later unmatched parent exactly once in both executi
     e:close()
   end
 end)
+test("keep_parents retains synthetic ancestors across repeated queries, cancellation and resume", function()
+  for _, remote in ipairs({ false, true }) do
+    local parent = { text = "parent", file = "parent", idx = 0, score = 0 }
+    local options = {
+      raw_cmd = "printf '%s\\n' child.lua",
+      matcher = { keep_parents = true },
+      transform = function(item)
+        item.parent = parent -- not itself a source candidate
+      end,
+    }
+    local e = run(options, "child", remote)
+    for i, query in ipairs({ "child", "child", "missing", "child" }) do
+      local done = false
+      if i == 4 then
+        e:request("interrupted", function() end)
+      end
+      e:request(query, function(s)
+        done = s == nil
+      end)
+      wait(function()
+        return done
+      end)
+      eq(#e.results, query == "missing" and 0 or 2)
+      if query ~= "missing" then
+        assert(e.results[2] == parent)
+        eq(parent.score, 1)
+        eq(parent.child_match_only, true)
+      end
+    end
+    e:close()
+    e.closed, e.ctx.picker.closed = false, false
+    local resumed = false
+    e:request("child", function(s)
+      resumed = s == nil
+    end)
+    wait(function()
+      return resumed
+    end)
+    eq(#e.results, 2, "resume must not reuse a synthetic ancestor's old match tick")
+    assert(e.results[2] == parent)
+    e:close()
+    -- A new picker may reuse the same transform closure and external graph.
+    parent.match_tick = 1
+    local another = run(options, "child", remote)
+    eq(#another.results, 2)
+    assert(another.results[2] == parent)
+    another:close()
+  end
+end)
+
+test("closing an engine releases candidates retained by resume options", function()
+  local e = run({ raw_cmd = "printf '%s\\n' alpha.lua beta.txt" })
+  local refs = setmetatable({ e.items[1], e.results }, { __mode = "v" })
+  e:close()
+  collectgarbage("collect")
+  eq(#e.items, 0)
+  eq(e.results, nil)
+  eq(refs[1], nil)
+  eq(refs[2], nil)
+  local done = false
+  -- Native hide/unhide revives this same engine before requesting a new scan.
+  e.closed, e.ctx.picker.closed = false, false
+  e:request("alpha", function(s)
+    done = s == nil
+  end)
+  wait(function()
+    return done
+  end)
+  eq(e.scans, 2)
+  eq(#e.results, 1)
+  e:close()
+end)
+
 test("multiprocess snapshot matches main process score/order/positions", function()
   local options = { raw_cmd = "printf '%s\\n' sub/init.lua alpha.lua beta.txt", matcher = { frecency = true } }
   local a, b = run(options, "lua", false), run(options, "lua", true)

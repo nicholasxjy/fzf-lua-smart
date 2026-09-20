@@ -20,7 +20,10 @@ removed; the adapter schedules search and supplies callback context.
 `tests/matcher.lua` compares parsed modifiers, sets, exact numeric scores,
 Item mutations and byte positions for generic/`smart` defaults and shared matcher
 factors toggled individually, with both file and non-file items and frozen
-frecency. Separate assertions cover the intentional `file_pos=false` correction. It also compares full logical order of 3,000 history-boosted results.
+frecency. Deterministic randomized/repeated-byte cases also exercise the greedy
+suffix and filename-boundary caches. Separate assertions cover the intentional
+`file_pos=false` correction. It also compares full logical order of 3,000
+history-boosted results.
 `tests/config.lua` checks all nine defaults and setup/call overrides against
 upstream; `tests/engine.lua` compares scores, order and positions through query
 reloads in both the main process and worker, including empty-query restoration.
@@ -82,8 +85,10 @@ upstream UI heap/tail. Scores and matcher positions remain exact.
 ## Observable quirks preserved
 
 - `core/matcher.lua:fuzzy` says “forward/backward” in its comment but repeatedly
-  runs forward scans. The implementation, including its scoring constants and
-  first-best tie behavior, is retained.
+  runs greedy forward scans. The same starts, scores, positions and first-best
+  ties are retained. This plugin reuses monotone suffix positions between starts
+  and caches the next filename separator for the current string; neither is a
+  backward scan or a different scoring algorithm.
 - UTF-8 matching uses bytes and Lua's case conversion, not Unicode case folding.
 - All OR alternatives contribute highlight positions, not only the alternative
   whose score was used; OR alternatives are tried in upstream entropy order.
@@ -155,6 +160,31 @@ candidates. `find()` queues a refresh for the next native reload rather than
 reentering an active callback. Window/list navigation,
 Snacks preview/action APIs and its UI lifecycle are deliberately outside the
 interface. Configure those through native fzf-lua options.
+
+## Execution and resource ownership
+
+Regex compilation (including invalid patterns) is cached for the most recently
+used pattern. Stable merge sorting skips already ordered runs and buffers only
+left runs; it still sorts all results and yields to input/timers. Comparators
+must define a consistent strict weak ordering.
+
+Retained-parent bookkeeping belongs to one matching round. Before matching,
+the engine resets candidates and their current ancestor graph once (only when
+`keep_parents` is enabled). This includes external parents shared by transform
+closures across queries, close/resume and picker instances; an unchanged or
+colliding pattern tick cannot suppress those parents.
+
+The matcher still clears existing `match_topk` metadata, but does not insert an
+absent nil-valued key. Such writes can expand full LuaJIT hash tables on each
+candidate during repeated queries even though the field remains logically nil.
+
+Completed/cancelled tasks release their coroutine stacks and cleanup closures.
+Closing or hiding a picker releases its candidate/result/parent arrays even if
+native resume options keep the engine alive. Resume already requests a fresh
+scan, so no candidate cache needs to survive close. References intentionally
+retained by user callbacks remain the caller's responsibility.
+
+See [performance checks](performance.md) for reproducible benchmarks.
 
 ## Storage safety changes
 

@@ -55,12 +55,22 @@ local function bench(count)
     return e.query == "file9" and not e.sink
   end, 10))
   assert(e.scans == scans)
+  collectgarbage("collect")
+  local before_close = collectgarbage("count")
   vim.api.nvim_chan_send(vim.bo[win.fzf_bufnr].channel, "\3")
   assert(vim.wait(10000, function()
     return e.closed
   end))
   timer:stop()
   timer:close()
+  collectgarbage("collect")
+  print(vim.json.encode({
+    benchmark = "close",
+    candidates = count,
+    retained_candidates = #e.items,
+    memory_before_close_kib = before_close,
+    memory_after_close_kib = collectgarbage("count"),
+  }))
   vim.fn.delete(file)
 end
 bench(10000)

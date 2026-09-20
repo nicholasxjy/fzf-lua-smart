@@ -117,6 +117,7 @@ test("matcher differential: queries, scores, fields, file positions and byte hig
           buf = 12,
           score_add = i % 3 == 0 and 1.5 or nil,
           score_mul = i % 4 == 0 and 0.75 or nil,
+          match_topk = i % 5 == 0 and 9 or nil,
         }
         for _, is_file in ipairs({ true, false }) do
           item.file = is_file and text or nil
@@ -132,6 +133,106 @@ test("matcher differential: queries, scores, fields, file positions and byte hig
   end
   print("  exact differential comparisons: " .. count)
 end)
+test("fuzzy differential covers repeated bytes, gaps, boundaries and first-best ties", function()
+  local seed = 19283
+  local function random(n)
+    seed = seed * 48271 % 2147483647
+    return seed % n + 1
+  end
+  local alphabet = { "a", "a", "b", "c", "A", "B", "1", "2", "_", "-", "/", "\\", " ", "é", "文" }
+  for _, options in ipairs({
+    { filename_bonus = true },
+    { filename_bonus = false },
+    { filename_bonus = true, history_bonus = true },
+    { filename_bonus = true, smartcase = false, ignorecase = false },
+  }) do
+    local a, b = port.new(options), upstream.new(options)
+    for i = 1, 500 do
+      local chars, query = {}, {}
+      for j = 1, random(80) do
+        chars[j] = alphabet[random(#alphabet)]
+        if random(5) == 1 then
+          query[#query + 1] = chars[j]
+        end
+      end
+      local text = table.concat(chars)
+      local item = { text = text, file = i % 2 == 0 and text or nil }
+      a:init(table.concat(query))
+      b:init(table.concat(query))
+      eq(a:match(item), b:match(item), text .. " / " .. a.pattern)
+      eq(a:positions(item), b:positions(item), text .. " / " .. a.pattern)
+    end
+    for _, text in ipairs({ ("a"):rep(256) .. "/b", "aababaaba/b", "a/aab/bab", "aaaAAAaaaab" }) do
+      for _, query in ipairs({ "ab", "aaab", "aba", "aab", "aaaaac", "b" }) do
+        a:init(query)
+        b:init(query)
+        local item = { text = text, file = text }
+        eq(a:match(item), b:match(item), text .. " / " .. query)
+        eq(a:positions(item), b:positions(item), text .. " / " .. query)
+      end
+    end
+  end
+end)
+
+test("repeated matching clears heap metadata without inserting absent nil fields", function()
+  local nil_writes = 0
+  local item = setmetatable({ text = "alpha.lua" }, {
+    __newindex = function(t, key, value)
+      if key == "match_topk" and value == nil then
+        nil_writes = nil_writes + 1
+      end
+      rawset(t, key, value)
+    end,
+  })
+  local m = port.new()
+  for _, query in ipairs({ "", "alpha", "missing", "" }) do
+    m:init(query)
+    m:update({}, item)
+  end
+  eq(nil_writes, 0)
+  item.match_topk = 42
+  m:update({}, item)
+  eq(item.match_topk, nil)
+end)
+
+test("filename-boundary cache preserves scores across strings, directions and file flags", function()
+  local a = require("fzf-lua-smart.vendor.score").new({ filename_bonus = true })
+  local b = require("snacks.picker.core.score").new({ filename_bonus = true })
+  for _, text in ipairs({ "a/b/c", "plain", "x/y/", "a\\b/c", "a/b/c", "a/b\nc" }) do
+    for _, is_file in ipairs({ true, false, true }) do
+      a.is_file, b.is_file = is_file, is_file
+      for _, direction in ipairs({ 1, -1, 1 }) do
+        for i = 1, #text do
+          local first = direction == 1 and i or #text - i + 1
+          eq(a:get(text, first, #text), b:get(text, first, #text))
+        end
+      end
+    end
+  end
+end)
+
+test("regex is compiled once per pattern, including invalid patterns", function()
+  local regex, calls = vim.regex, 0
+  vim.regex = function(pattern)
+    calls = calls + 1
+    return regex(pattern)
+  end
+  local ok, err = xpcall(function()
+    local m = port.new({ regex = true })
+    for index, query in ipairs({ "a.*b", "\\(", "b$" }) do
+      m:init(query)
+      for _ = 1, 20 do
+        local item = { text = "aa/b", file = "aa/b" }
+        m:match(item)
+        m:positions(item)
+      end
+      eq(calls, index)
+    end
+  end, debug.traceback)
+  vim.regex = regex
+  assert(ok, err)
+end)
+
 test("sort differential: complete order, booleans, missing fields and raw text length", function()
   local configs = {
     { fields = { "score:desc", "#text", "idx" } },

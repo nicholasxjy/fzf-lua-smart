@@ -70,6 +70,9 @@ function M:close()
   self.generation = self.generation + 1
   self.scan:abort()
   self:stop_output()
+  -- Native resume keeps the engine in saved options. It starts a fresh scan,
+  -- so retaining the previous candidate graph here only keeps memory alive.
+  self.items, self.results, self.parents, self.parent_added = {}, nil, nil, nil
 end
 function M:refresh()
   -- A reload pipe is one-shot. Queue refresh for the next native request;
@@ -162,13 +165,24 @@ function M:match()
   self.matching = Task.new(function(task)
     local yield, found = Task.yielder(2), {}
     local start = vim.uv.hrtime()
-    self.parents, self.parent_added = {}, {}
-    -- A reload may repeat the same pattern/tick. Retained-parent bookkeeping
-    -- belongs to this matching round, not a previous published generation.
-    for _, item in ipairs(self.items) do
-      item.match_tick = nil
-      yield()
+    -- A reload/resume may repeat the same pattern/tick. Walk the current
+    -- ancestor graph once, including parents held outside the engine by a
+    -- transform. Looking only at the previous result loses parents on resume.
+    -- The ordinary flat-file path needs no separate full-candidate pass.
+    if matcher.opts.keep_parents then
+      local cleared = {}
+      for _, item in ipairs(self.items) do
+        item.match_tick = nil
+        local parent = item.parent
+        while parent and not parent.root and not cleared[parent] do
+          cleared[parent], parent.match_tick = true, nil
+          parent = parent.parent
+          yield()
+        end
+        yield()
+      end
     end
+    self.parents, self.parent_added = {}, {}
     local sorting = matcher.opts.sort ~= false and (not matcher:empty() or matcher.opts.sort_empty)
     matcher.sorting = sorting
     local remote = self.multiprocess == true and require("fzf-lua-smart.process").match(self, task, yield)
@@ -181,7 +195,10 @@ function M:match()
       elseif remote then
         local r = remote[i]
         item.score, item.pos, item.match_pos = r.score, r.pos, r.match_pos
-        item.match_tick, item.match_topk, item.frecency = r.match_tick, nil, r.frecency
+        item.match_tick, item.frecency = r.match_tick, r.frecency
+        if item.match_topk ~= nil then
+          item.match_topk = nil
+        end
         matched = r.matched
         if item.score ~= 0 then
           matcher:on_match(self.ctx.picker, item)
@@ -222,7 +239,7 @@ function M:match()
       return
     end
     for _, item in ipairs(found) do
-      if self.closed or generation ~= self.generation then
+      if self.closed or task.cancelled or generation ~= self.generation then
         return
       end
       sink(require("fzf-lua-smart.display").entry(item, matcher, self.render_opts or self.opts), function(err)

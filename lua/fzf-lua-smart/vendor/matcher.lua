@@ -1,6 +1,7 @@
 -- Derived from folke/snacks.nvim, commit 882c996cf28183f4d63640de0b4c02ec886d01f2.
 -- Apache-2.0; see licenses/snacks-Apache-2.0.txt.
--- Modified: standalone module names, search-only integration, and file_pos/line_query gates.
+-- Modified: standalone integration, file_pos/line_query gates, and bounded
+-- regex/greedy-suffix caches that preserve upstream scores and first-best ties.
 local Async = require("fzf-lua-smart.task")
 
 ---@class fzf_lua_smart.Item
@@ -64,6 +65,7 @@ function M.new(opts)
   self.sorting = true
   self.tick = 0
   self.score = require("fzf-lua-smart.vendor.score").new(self.opts)
+  self._fuzzy_matches = {}
   self.frecency = self.opts.frecency and require("fzf-lua-smart.vendor.frecency").new() or nil
   return self
 end
@@ -265,7 +267,12 @@ function M:update(picker, item)
     item.pos = nil
   end
   local score = self:match(item)
-  item.match_tick, item.match_topk = self.tick, nil
+  item.match_tick = self.tick
+  -- Writing nil to a missing key can grow a full LuaJIT hash table on reload.
+  -- This UI-only field is normally absent in the standalone search engine.
+  if item.match_topk ~= nil then
+    item.match_topk = nil
+  end
   if score ~= 0 then
     if item.score_add then
       score = score + item.score_add
@@ -397,11 +404,14 @@ end
 ---@param pattern string
 ---@return number? score, number? from, number? to, string? str
 function M:regex(str, pattern)
-  local ok, re = pcall(vim.regex, pattern)
-  if not ok then
+  if self._regex_pattern ~= pattern then
+    local ok, re = pcall(vim.regex, pattern)
+    self._regex_pattern, self._regex = pattern, ok and re or false
+  end
+  if not self._regex then
     return
   end
-  local from, to = re:match_str(str)
+  local from, to = self._regex:match_str(str)
   if from and to then
     from = from + 1
     return self.score:get(str, from, to), from, to, str
@@ -471,8 +481,9 @@ end
 ---@param str_orig string
 ---@param pattern string[]
 ---@param init? number
+---@param matches? number[] greedy positions from the preceding start in this string
 ---@return number? from, number? to
-function M:fuzzy_find(str, str_orig, pattern, init)
+function M:fuzzy_find(str, str_orig, pattern, init, matches)
   local from = string.find(str, pattern[1], init or 1, true)
   if not from then
     return
@@ -481,8 +492,15 @@ function M:fuzzy_find(str, str_orig, pattern, init)
   ---@type number?, number
   local last, n = from, #pattern
   for i = 2, n do
-    last = string.find(str, pattern[i], last + 1, true)
+    -- Every start moves right, so each greedy suffix position is monotone. If
+    -- its previous position still follows this prefix, it remains the first
+    -- possible match. Do not search the same long gap for every start byte.
+    local cached = init and matches and matches[i]
+    last = cached and cached > last and cached or string.find(str, pattern[i], last + 1, true)
     if last then
+      if matches then
+        matches[i] = last
+      end
       self.score:update(last)
     else
       return
@@ -491,14 +509,15 @@ function M:fuzzy_find(str, str_orig, pattern, init)
   return from, last
 end
 
---- Does a forward scan followed by a backward scan for each end position,
---- to find the best match.
+--- Score every greedy forward match, retaining the first best score as upstream
+--- does. Reuse suffix positions only within this call, never across items.
 ---@param str string
 ---@param str_orig string
 ---@param pattern string[]
 ---@return number? score, number? from, number? to, string? str
 function M:fuzzy(str, str_orig, pattern)
-  local from, to = self:fuzzy_find(str, str_orig, pattern)
+  local matches = self._fuzzy_matches
+  local from, to = self:fuzzy_find(str, str_orig, pattern, nil, matches)
   if not from then
     return
   end
@@ -509,7 +528,7 @@ function M:fuzzy(str, str_orig, pattern)
     if self.score.score > best_score then
       best_from, best_to, best_score = from, to, self.score.score
     end
-    from, to = self:fuzzy_find(str, str_orig, pattern, from + 1)
+    from, to = self:fuzzy_find(str, str_orig, pattern, from + 1, matches)
   end
   return best_score, best_from, best_to, str
 end

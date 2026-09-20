@@ -26,8 +26,10 @@ jobs:
         env:
           FZF_LUA_REF: ${{ matrix.fzf-lua }}
       - run: scripts/test.sh
-      - name: Record 10k/100k responsiveness baseline
-        run: nvim --headless -u tests/minimal.lua -l scripts/benchmark.lua
+      - name: Record core and 10k/100k responsiveness benchmarks
+        run: |
+          nvim --headless -u tests/minimal.lua -l scripts/benchmark_core.lua
+          nvim --headless -u tests/minimal.lua -l scripts/benchmark.lua
   format:
     runs-on: ubuntu-latest
     steps:
@@ -36,4 +38,4 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           version: latest
-          args: --check lua tests scripts/benchmark.lua
+          args: --check lua tests scripts/benchmark.lua scripts/benchmark_core.lua

@@ -1,6 +1,6 @@
 -- Derived from folke/snacks.nvim, commit 882c996cf28183f4d63640de0b4c02ec886d01f2.
 -- Apache-2.0; see licenses/snacks-Apache-2.0.txt.
--- Modified: standalone module names and search-only host integration.
+-- Modified: standalone integration and a one-string filename-boundary cache.
 --- This is a port of the scoring logic from fzf. See:
 --- https://github.com/junegunn/fzf/blob/master/src/algo/algo.go
 ---@class fzf_lua_smart.Score
@@ -11,6 +11,8 @@
 ---@field is_file boolean
 ---@field first_bonus number
 ---@field str string
+---@field path_from? number
+---@field path_sep? number
 ---@field opts fzf_lua_smart.MatcherConfig
 ---@field bonus_matrix number[][]
 ---@field bonus_boundary_white number
@@ -131,6 +133,9 @@ end
 ---@param str string
 ---@param first number
 function M:init(str, first)
+  if self.str ~= str then
+    self.path_from = nil
+  end
   self.str = str
   self.score = 0
   self.consecutive = 0
@@ -140,13 +145,23 @@ function M:init(str, first)
   if first > 1 then
     self.prev_class = CHAR_CLASS[str:byte(first - 1)] or CHAR_NONWORD
   end
-  if
-    self.is_file
-    and self.opts.filename_bonus
-    and not str:find(PATH_SEP, first + 1, true)
-    and not (PATH_SEP ~= "/" and str:find("/", first + 1, true))
-  then
-    self.score = self.score + BONUS_NO_PATH_SEP
+  if self.is_file and self.opts.filename_bonus then
+    if not self.path_from or first < self.path_from or self.path_sep > 0 and first >= self.path_sep then
+      -- Keep the next separator, rather than scanning the entire string for
+      -- its last separator. This preserves the cheap single-start path while
+      -- repeated forward starts search each directory span only once.
+      self.path_from = first
+      self.path_sep = str:find(PATH_SEP, first + 1, true) or 0
+      if PATH_SEP ~= "/" then
+        local slash = str:find("/", first + 1, true) or 0
+        if slash > 0 and (self.path_sep == 0 or slash < self.path_sep) then
+          self.path_sep = slash
+        end
+      end
+    end
+    if self.path_sep == 0 then
+      self.score = self.score + BONUS_NO_PATH_SEP
+    end
   end
   self:update(first)
 end

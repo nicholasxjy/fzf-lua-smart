@@ -13,10 +13,13 @@ function Task:abort()
     return
   end
   self.done, self.cancelled = true, true
-  for _, fn in ipairs(self.cleanup) do
+  local cleanup = self.cleanup
+  -- A suspended coroutine owns its whole stack, including candidate arrays and
+  -- worker snapshots. Saved picker options may keep the Task alive after close.
+  self.co, self.cleanup, self.on_error = nil, {}, nil
+  for _, fn in ipairs(cleanup) do
     pcall(fn)
   end
-  self.cleanup = {}
 end
 function Task:on_cancel(fn)
   self.cleanup[#self.cleanup + 1] = fn
@@ -33,16 +36,19 @@ function Task:resume()
     if self.done then
       return
     end
-    local ok, suspend = coroutine.resume(self.co)
+    local co, on_error = self.co, self.on_error
+    local ok, suspend = coroutine.resume(co)
     if not ok then
       self:abort()
-      if self.on_error then
-        self.on_error(suspend)
+      if on_error then
+        on_error(suspend)
       else
         vim.notify(suspend, vim.log.levels.ERROR)
       end
-    elseif coroutine.status(self.co) == "dead" then
-      self.done, self.cleanup = true, {}
+    elseif self.done then
+      return -- the running callback may have aborted its own task
+    elseif coroutine.status(co) == "dead" then
+      self.done, self.co, self.cleanup, self.on_error = true, nil, {}, nil
     elseif not suspend then
       self:resume()
     end
@@ -72,25 +78,34 @@ function M.yielder(ms)
     end
   end
 end
--- Stable, yielding merge sort. Never concatenate independently sorted chunks.
+-- Stable, yielding merge sort. Already ordered runs need no copying; otherwise
+-- buffer only the left run and merge into items, leaving the right tail in place.
 function M.sort(items, less, yield)
   local n, width, tmp = #items, 1, {}
   while width < n do
-    for first = 1, n, 2 * width do
-      local mid, last = math.min(first + width - 1, n), math.min(first + 2 * width - 1, n)
-      local a, b = first, mid + 1
-      for out = first, last do
-        if a <= mid and (b > last or not less(items[b], items[a])) then
-          tmp[out], a = items[a], a + 1
-        else
-          tmp[out], b = items[b], b + 1
+    for first = 1, n - width, 2 * width do
+      local mid, last = first + width - 1, math.min(first + 2 * width - 1, n)
+      if less(items[mid + 1], items[mid]) then
+        for i = 1, width do
+          tmp[i] = items[first + i - 1]
+          yield()
         end
-        yield()
+        local a, b, out = 1, mid + 1, first
+        while a <= width and b <= last do
+          if not less(items[b], tmp[a]) then
+            items[out], a = tmp[a], a + 1
+          else
+            items[out], b = items[b], b + 1
+          end
+          out = out + 1
+          yield()
+        end
+        while a <= width do
+          items[out], a, out = tmp[a], a + 1, out + 1
+          yield()
+        end
       end
-      for out = first, last do
-        items[out] = tmp[out]
-        yield()
-      end
+      yield()
     end
     width = width * 2
   end
