@@ -2,6 +2,9 @@ local M = {}
 M.__index = M
 local Task = require("fzf-lua-smart.task")
 local Sources = require("fzf-lua-smart.sources")
+-- Entries per pipe write when the host accepts line batches. One write per
+-- entry costs a libuv request and callback for every candidate.
+local BATCH = 512
 
 function M.new(opts)
   opts = vim.deepcopy(opts)
@@ -61,7 +64,7 @@ function M:stop_output()
   self.matching:abort()
   if self.sink then
     self.sink(nil)
-    self.sink = nil
+    self.sink, self.write_lines = nil, nil
   end
 end
 function M:close()
@@ -111,14 +114,16 @@ function M:filter(query)
   end
   return filter, force
 end
-function M:request(query, sink)
+---@param sink fun(entry?:string, cb?:fun(err?:any)) Writes one entry; nil ends output
+---@param write_lines? fun(entries:string[], cb?:fun(err?:any)) Writes a batch of entries
+function M:request(query, sink, write_lines)
   if self.closed then
     sink(nil)
     return
   end
   self.generation = self.generation + 1
   self:stop_output()
-  self.sink, self.query = sink, query or ""
+  self.sink, self.write_lines, self.query = sink, write_lines, query or ""
   local filter, force = self:filter(self.query)
   local finding = force or not self.started or self.search ~= filter.search or self.source_id ~= filter.source_id
   self.ctx.filter = filter
@@ -234,23 +239,40 @@ function M:match()
     if self.on_results then
       self.on_results(found, matcher)
     end
-    local sink = self.sink
+    local sink, write_lines = self.sink, self.write_lines
     if not sink then
       return
     end
+    local entry, render = require("fzf-lua-smart.display").entry, self.render_opts or self.opts
+    local function written(err)
+      if err then
+        task:abort()
+      end
+    end
+    -- Batches are written only right after the cancellation check, so a
+    -- superseded request drops its partial batch instead of writing stale entries.
+    local batch, size = {}, 0
     for _, item in ipairs(found) do
       if self.closed or task.cancelled or generation ~= self.generation then
         return
       end
-      sink(require("fzf-lua-smart.display").entry(item, matcher, self.render_opts or self.opts), function(err)
-        if err then
-          task:abort()
+      if write_lines then
+        size = size + 1
+        batch[size] = entry(item, matcher, render)
+        if size == BATCH then
+          write_lines(batch, written)
+          batch, size = {}, 0
         end
-      end)
+      else
+        sink(entry(item, matcher, render), written)
+      end
       yield()
     end
     if self.sink == sink then
-      self.sink = nil
+      if size > 0 then
+        write_lines(batch, written)
+      end
+      self.sink, self.write_lines = nil, nil
       sink(nil)
     end
   end, function(err)

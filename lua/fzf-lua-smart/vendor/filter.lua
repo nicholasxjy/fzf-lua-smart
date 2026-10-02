@@ -16,6 +16,7 @@
 ---@field meta table<string, any>
 local M = {}
 M.__index = M
+local util = require("fzf-lua-smart.util")
 
 ---@param picker fzf_lua_smart.Search
 function M.new(picker)
@@ -93,7 +94,7 @@ function M:match(item)
   if not (self.opts.cwd or self.opts.paths) then
     return true
   end
-  local path = require("fzf-lua-smart.util").path(item)
+  local path = util.path(item)
   if not path then
     return false
   end

@@ -144,7 +144,8 @@ function M.smart(value)
   opts.__smart = engine
   return require("fzf-lua.core").fzf_live(function(args)
     local query = args[1] or ""
-    return function(cb)
+    -- fzf-lua passes a per-line writer and a writer for line batches.
+    return function(cb, write_lines)
       local win = require("fzf-lua.win").__SELF()
       if not win or win._o.__smart ~= engine or win.closing or win:was_hidden() then
         cb(nil)
@@ -152,7 +153,7 @@ function M.smart(value)
       end
       -- Only a live native window may revive a closed engine during resume.
       engine.closed, engine.ctx.picker.closed = false, false
-      engine:request(query, cb)
+      engine:request(query, cb, write_lines)
     end
   end, opts)
 end

@@ -80,6 +80,37 @@ for _, count in ipairs({ 10000, 100000 }) do
   end
 end
 
+-- Display encoding of every published candidate, with and without highlights.
+local opts = require("fzf-lua-smart.config").resolve({
+  multi = { "files" },
+  cwd = "/work",
+  file_icons = false,
+  git_icons = false,
+  matcher = { frecency = false },
+})
+local render = require("fzf-lua-smart.display").setup(opts)
+require("fzf-lua.make_entry").preprocess(render)
+for _, count in ipairs({ 10000, 100000 }) do
+  local items = {}
+  for i = 1, count do
+    local file = ("src/group%d/file%06d.lua"):format(i % 100, i)
+    items[i] = { text = file, file = file, cwd = "/work", score = 1000, idx = i }
+  end
+  for _, query in ipairs({ "", "file9" }) do
+    local matcher = Matcher.new({ filename_bonus = true })
+    matcher:init(query)
+    measure("display" .. (query == "" and "" or "_highlight"), count, function()
+      return items
+    end, function(input)
+      local entries = {}
+      for i, item in ipairs(input) do
+        entries[i] = require("fzf-lua-smart.display").entry(item, matcher, render)
+      end
+      return vim.fn.sha256(table.concat(entries, "\0"))
+    end)
+  end
+end
+
 for _, size in ipairs({ 128, 512, 2048 }) do
   local matcher = Matcher.new({ filename_bonus = true })
   matcher:init("ab")

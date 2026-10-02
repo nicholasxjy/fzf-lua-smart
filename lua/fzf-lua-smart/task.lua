@@ -30,7 +30,8 @@ function Task:resume()
   end
   self.pending = true
   -- A scheduled-callback chain can starve libuv timers/input while Neovim
-  -- drains its queue. A timer boundary lets terminal IO and cancellation run.
+  -- drains its queue. A timer boundary lets terminal IO and cancellation run;
+  -- a zero timeout still polls IO but does not idle after every time slice.
   vim.defer_fn(function()
     self.pending = false
     if self.done then
@@ -52,7 +53,7 @@ function Task:resume()
     elseif not suspend then
       self:resume()
     end
-  end, 1)
+  end, 0)
 end
 function M.new(fn, on_error)
   local self = setmetatable({ cleanup = {}, on_error = on_error }, Task)
@@ -78,10 +79,37 @@ function M.yielder(ms)
     end
   end
 end
--- Stable, yielding merge sort. Already ordered runs need no copying; otherwise
--- buffer only the left run and merge into items, leaving the right tail in place.
+local RUN = 32
+-- Stable, yielding merge sort. Short runs are first sorted by binary insertion,
+-- which needs no buffer and fewer merge passes. Already ordered runs need no
+-- copying; otherwise buffer only the left run and merge into items, leaving the
+-- right tail in place.
 function M.sort(items, less, yield)
-  local n, width, tmp = #items, 1, {}
+  local n, tmp = #items, {}
+  for first = 1, n, RUN do
+    local last = math.min(first + RUN - 1, n)
+    for i = first + 1, last do
+      local item = items[i]
+      if less(item, items[i - 1]) then
+        -- Insert after equal elements: the first position whose item is greater.
+        local lo, hi = first, i - 1
+        while lo < hi do
+          local mid = math.floor((lo + hi) / 2)
+          if less(item, items[mid]) then
+            hi = mid
+          else
+            lo = mid + 1
+          end
+        end
+        for j = i, lo + 1, -1 do
+          items[j] = items[j - 1]
+        end
+        items[lo] = item
+      end
+      yield()
+    end
+  end
+  local width = RUN
   while width < n do
     for first = 1, n - width, 2 * width do
       local mid, last = first + width - 1, math.min(first + 2 * width - 1, n)

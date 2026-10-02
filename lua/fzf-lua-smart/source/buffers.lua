@@ -23,10 +23,8 @@ function M.buffers(opts, ctx)
       and (opts.nofile or vim.bo[buf].buftype ~= "nofile")
       and (not opts.modified or vim.bo[buf].modified)
     if keep then
-      local name = vim.api.nvim_buf_get_name(buf)
-      if name == "" then
-        name = "[Scratch]"
-      end
+      local bufname = vim.api.nvim_buf_get_name(buf)
+      local name = bufname == "" and "[Scratch]" or bufname
       local info = vim.fn.getbufinfo(buf)[1]
       local mark = vim.api.nvim_buf_get_mark(buf, '"')
       local flags = {
@@ -38,7 +36,7 @@ function M.buffers(opts, ctx)
       table.insert(items, {
         flags = table.concat(flags),
         buf = buf,
-        name = vim.api.nvim_buf_get_name(buf),
+        name = bufname,
         buftype = vim.bo[buf].buftype,
         filetype = vim.bo[buf].filetype,
         file = name,

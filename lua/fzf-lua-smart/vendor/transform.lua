@@ -4,10 +4,11 @@
 ---@class fzf_lua_smart.transformers
 ---@field [string] fzf_lua_smart.transform
 local M = {}
+local util = require("fzf-lua-smart.util")
 
 function M.unique_file(item, ctx)
   ctx.meta.done = ctx.meta.done or {} ---@type table<string, boolean>
-  local path = require("fzf-lua-smart.util").path(item)
+  local path = util.path(item)
   if not path or ctx.meta.done[path] then
     return false
   end

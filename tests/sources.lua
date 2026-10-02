@@ -121,3 +121,29 @@ test("find follow with explicit roots does not scan the process cwd", function()
   assert(out.stdout:find("sub/init.lua", 1, true))
   assert(not out.stdout:find("alpha.lua", 1, true))
 end)
+test("native filter applies cwd_only and ignore patterns only when configured", function()
+  local S = require("fzf-lua-smart.sources")
+  local function inside()
+    return { file = "sub/init.lua", cwd = fixture }
+  end
+  local function outside()
+    return { file = "/elsewhere/x.lua" }
+  end
+  assert(S.native_filter(inside(), { cwd = fixture }))
+  assert(S.native_filter(outside(), { cwd = fixture }))
+  assert(S.native_filter({ text = "no file" }, { cwd = fixture, cwd_only = true }))
+  assert(S.native_filter(inside(), { cwd = fixture, cwd_only = true }))
+  assert(not S.native_filter(outside(), { cwd = fixture, cwd_only = true }))
+  assert(not S.native_filter(inside(), { cwd = fixture, file_ignore_patterns = { "^sub/" } }))
+  assert(S.native_filter(inside(), { cwd = fixture, file_ignore_patterns = { "^init" } }))
+  assert(S.native_filter(inside(), { cwd = fixture, file_ignore_patterns = { "" } }))
+  assert(not S.native_filter(inside(), { cwd = fixture, ignore_current_file = true }, fixture .. "/sub/init.lua"))
+end)
+test("item paths join cwd and match fast normalization, including a leading tilde", function()
+  local util = require("fzf-lua-smart.util")
+  for _, file in ipairs({ "~/x.lua", "~", "a/~b", "$HOME/x", "a//./b/", "", "/abs/../x" }) do
+    eq(util.path({ file = file }), vim.fs.normalize(file, { _fast = true, expand_env = false }), file)
+  end
+  eq(util.path({ file = "x.lua", cwd = "/w" }), "/w/x.lua")
+  eq(util.path({ text = "x" }), nil)
+end)

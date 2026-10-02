@@ -164,9 +164,14 @@ interface. Configure those through native fzf-lua options.
 ## Execution and resource ownership
 
 Regex compilation (including invalid patterns) is cached for the most recently
-used pattern. Stable merge sorting skips already ordered runs and buffers only
-left runs; it still sorts all results and yields to input/timers. Comparators
-must define a consistent strict weak ordering.
+used pattern. Stable sorting insertion-sorts short runs, skips already ordered
+runs when merging and buffers only left runs; it still sorts all results and
+yields to input/timers. Comparators must define a consistent strict weak
+ordering.
+
+Published entries are written to fzf in batches of up to 512 lines. A batch is
+written only directly after the cancellation check, so a superseded query drops
+its unwritten entries rather than publishing stale results.
 
 Retained-parent bookkeeping belongs to one matching round. Before matching,
 the engine resets candidates and their current ancestor graph once (only when

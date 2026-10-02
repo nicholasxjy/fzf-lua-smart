@@ -28,7 +28,6 @@ end
 
 -- Match fzf-lua.make_entry.file's filtering stage without touching matching text.
 function M.native_filter(item, opts, current)
-  local path = require("fzf-lua.path")
   local file = util.path(item)
   if not file then
     return true
@@ -36,6 +35,11 @@ function M.native_filter(item, opts, current)
   if opts.ignore_current_file and file == current then
     return false
   end
+  local patterns = opts.file_ignore_patterns
+  if not opts.cwd_only and not (patterns and #patterns > 0) then
+    return true -- the display path below only feeds these filters
+  end
+  local path = require("fzf-lua.path")
   local display = opts.strip_cwd_prefix and path.strip_cwd_prefix(file) or file
   if opts.absolute_path then
     if not path.is_absolute(display) then
@@ -52,7 +56,7 @@ function M.native_filter(item, opts, current)
       display = path.HOME_to_tilde(display)
     end
   end
-  for _, pattern in ipairs(opts.file_ignore_patterns or {}) do
+  for _, pattern in ipairs(patterns or {}) do
     if #pattern > 0 and display:match(pattern) then
       return false
     end

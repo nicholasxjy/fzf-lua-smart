@@ -83,3 +83,20 @@ test("display respects fzf match color overrides and leaves custom formatter out
   eq(matches, "")
   eq(display, "custom alpha.lua")
 end)
+
+test("display escapes transport/terminal control bytes and decodes the full record", function()
+  local file = "ctl\31x/a\1b\tc\rd\ne.lua"
+  for _, query in ipairs({ "", "ae" }) do
+    local opts = require("fzf-lua-smart.config").resolve({ cwd = fixture, file_icons = false, git_icons = false })
+    local matcher = require("fzf-lua-smart.vendor.matcher").new({ frecency = false })
+    matcher:init(query)
+    local entry = Display.entry({ file = file, text = file, cwd = fixture }, matcher, Display.setup(opts))
+    local display = assert(entry:match(string.char(31) .. "(.*)$"))
+    assert(not display:find("[%z\1-\8\10-\26\28-\31]"), vim.inspect(display))
+    eq(Utils.strip_ansi_coloring(display), "ctl\\x1fx/a\\x01b\tc␍d␊e.lua")
+    eq(Display.decode(entry), fixture .. "/" .. file .. ":0:1:")
+    -- Ordinary entries are not rewritten by the control-byte pass.
+    local plain = Display.entry({ file = "sub/init.lua", text = "sub/init.lua", cwd = fixture }, matcher, opts)
+    eq(Utils.strip_ansi_coloring(assert(plain:match(string.char(31) .. "(.*)$"))), "sub/init.lua")
+  end
+end)
