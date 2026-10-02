@@ -1,7 +1,7 @@
 local Task = require("fzf-lua-smart.task")
 
 test("stable sort agrees with total ordering across sizes and input distributions", function()
-  for _, count in ipairs({ 0, 1, 2, 3, 7, 16, 31, 100, 1025 }) do
+  for _, count in ipairs({ 0, 1, 2, 3, 7, 16, 31, 32, 33, 64, 65, 100, 1025 }) do
     for _, order in ipairs({ "sorted", "reverse", "mixed", "ties" }) do
       local items = {}
       for i = 1, count do

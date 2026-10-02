@@ -1,14 +1,24 @@
 -- Derived from folke/snacks.nvim, commit 882c996cf28183f4d63640de0b4c02ec886d01f2.
 -- Apache-2.0; see licenses/snacks-Apache-2.0.txt.
--- Modified: standalone module names and search-only host integration.
+-- Modified: standalone module names, search-only host integration and a
+-- normalize fast path.
 local M = {}
+local normalize_opts = { _fast = true, expand_env = false }
 function M.path(item)
   if not (item and item.file) then
     return
   end
-  item._path = item._path
-    or vim.fs.normalize(item.cwd and item.cwd .. "/" .. item.file or item.file, { _fast = true, expand_env = false })
-  return item._path
+  local path = item._path
+  if not path then
+    path = item.cwd and item.cwd .. "/" .. item.file or item.file
+    -- Fast, non-env POSIX normalization only expands a leading "~" (and keeps
+    -- ""); skip the call for every other candidate. Windows is unsupported.
+    if path:byte(1) == 126 then
+      path = vim.fs.normalize(path, normalize_opts)
+    end
+    item._path = path
+  end
+  return path
 end
 
 function M.text(item, keys)

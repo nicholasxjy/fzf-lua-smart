@@ -1,6 +1,7 @@
 -- Derived from folke/snacks.nvim, commit 882c996cf28183f4d63640de0b4c02ec886d01f2.
 -- Apache-2.0; see licenses/snacks-Apache-2.0.txt.
--- Modified: standalone module names and search-only host integration.
+-- Modified: standalone module names, search-only host integration and live
+-- single-entry reads for visits.
 -- Frecency based on exponential decay. Roughly based on:
 -- https://wiki.mozilla.org/User:Jesse/NewFrecency?title=User:Jesse/NewFrecency
 ---@class fzf_lua_smart.Frecency
@@ -10,6 +11,7 @@ local M = {}
 M.__index = M
 
 local uv = vim.uv or vim.loop
+local util = require("fzf-lua-smart.util")
 
 local HALF_LIFE = 30 * 24 * 3600 -- Half-life = 30 days (in seconds)
 local LAMBDA = math.log(2) / HALF_LIFE -- λ = ln(2) / half_life
@@ -62,6 +64,26 @@ function M.new()
   return self
 end
 
+--- A visit reads and updates one entry. Read it from the live store instead of
+--- copying a whole SQLite history snapshot on every BufWinEnter.
+local function live()
+  if not M.store then
+    M.setup()
+  end
+  local store = M.store
+  if not store.get then
+    return M.new()
+  end
+  local self = setmetatable({}, M)
+  self.now = os.time()
+  self.cache = setmetatable({}, {
+    __index = function(_, key)
+      return store:get(key)
+    end,
+  })
+  return self
+end
+
 --- Convert from a current score s into a "deadline date"
 --- t = now() + (ln(s) / λ)
 ---@param score number
@@ -82,7 +104,7 @@ end
 ---@param opts? {seed?: boolean}
 function M:get(item, opts)
   opts = opts or {}
-  local path = require("fzf-lua-smart.util").path(item)
+  local path = util.path(item)
   if not path then
     return 0
   end
@@ -112,7 +134,7 @@ function M:seed(item, value)
     return 0
   end
   local last_used = type(item.info) == "table" and item.info.lastused or nil
-  local path = require("fzf-lua-smart.util").path(item)
+  local path = util.path(item)
   if not path then
     return 0
   end
@@ -134,7 +156,7 @@ end
 ---@param item fzf_lua_smart.Item
 ---@param value? number @the "points" to add (e.g. typed=2, clicked=1, etc.)
 function M:visit(item, value)
-  local path = require("fzf-lua-smart.util").path(item)
+  local path = util.path(item)
   if not path then
     return
   end
@@ -152,7 +174,7 @@ function M.visit_buf(buf, value)
   if file == "" or not vim.uv.fs_stat(file) then
     return
   end
-  local frecency = M.new()
+  local frecency = live()
   frecency:visit({
     text = "",
     idx = 1,

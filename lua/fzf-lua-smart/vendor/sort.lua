@@ -1,6 +1,7 @@
 -- Derived from folke/snacks.nvim, commit 882c996cf28183f4d63640de0b4c02ec886d01f2.
 -- Apache-2.0; see licenses/snacks-Apache-2.0.txt.
--- Modified: standalone module names and search-only host integration.
+-- Modified: standalone module names, search-only host integration and a
+-- loop-free comparator chain.
 ---@class fzf_lua_smart.sorters
 local M = {}
 
@@ -29,29 +30,36 @@ function M.default(opts)
     end
   end
 
-  ---@param a fzf-lua-smart.Item
-  ---@param b fzf-lua-smart.Item
-  return function(a, b)
-    for _, field in ipairs(fields) do
-      local av, bv = a[field.name], b[field.name]
+  -- Chain one loop-free comparator per field. A field loop inside the
+  -- comparator aborts LuaJIT traces of every sorting loop that calls it.
+  local less = function()
+    return false
+  end
+  for i = #fields, 1, -1 do
+    local name, desc, len, next_less = fields[i].name, fields[i].desc, fields[i].len, less
+    ---@param a fzf-lua-smart.Item
+    ---@param b fzf-lua-smart.Item
+    less = function(a, b)
+      local av, bv = a[name], b[name]
       if av ~= nil and bv ~= nil then
-        if field.len then
+        if len then
           av, bv = #av, #bv
         end
         if av ~= bv then
           if type(av) == "boolean" then
             av, bv = av and 0 or 1, bv and 0 or 1
           end
-          if field.desc then
+          if desc then
             return av > bv
           else
             return av < bv
           end
         end
       end
+      return next_less(a, b)
     end
-    return false
   end
+  return less
 end
 
 function M.idx()

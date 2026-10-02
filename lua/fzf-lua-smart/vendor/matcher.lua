@@ -3,6 +3,7 @@
 -- Modified: standalone integration, file_pos/line_query gates, and bounded
 -- regex/greedy-suffix caches that preserve upstream scores and first-best ties.
 local Async = require("fzf-lua-smart.task")
+local util = require("fzf-lua-smart.util")
 
 ---@class fzf_lua_smart.Item
 ---@field match_tick? number
@@ -71,7 +72,7 @@ function M.new(opts)
 end
 
 function M:empty()
-  return not next(self.mods)
+  return self.mods[1] == nil -- mods is a list
 end
 
 function M:running()
@@ -289,10 +290,7 @@ function M:update(picker, item)
         item.frecency = item.frecency or self.frecency:get(item)
         score = score + (1 - 1 / (1 + item.frecency)) * BONUS_FRECENCY
       end
-      if
-        self.opts.cwd_bonus
-        and (self.cwd == item.cwd or require("fzf-lua-smart.util").path(item):find(self.cwd, 1, true) == 1)
-      then
+      if self.opts.cwd_bonus and (self.cwd == item.cwd or util.path(item):find(self.cwd, 1, true) == 1) then
         score = score + BONUS_CWD
       end
     end
@@ -511,26 +509,43 @@ end
 
 --- Score every greedy forward match, retaining the first best score as upstream
 --- does. Reuse suffix positions only within this call, never across items.
+--- Equivalent to repeated fuzzy_find calls, with both loops in one function:
+--- a loop inside a function called from a loop repeatedly aborts LuaJIT traces
+--- and can blacklist the whole matching path.
 ---@param str string
 ---@param str_orig string
 ---@param pattern string[]
 ---@return number? score, number? from, number? to, string? str
 function M:fuzzy(str, str_orig, pattern)
-  local matches = self._fuzzy_matches
-  local from, to = self:fuzzy_find(str, str_orig, pattern, nil, matches)
-  if not from then
-    return
-  end
-  ---@cast to number
-
-  local best_from, best_to, best_score = from, to, self.score.score
+  local matches, score, n, first = self._fuzzy_matches, self.score, #pattern, pattern[1]
+  local best_score, best_from, best_to ---@type number?, number?, number?
+  local from = string.find(str, first, 1, true)
   while from do
-    if self.score.score > best_score then
-      best_from, best_to, best_score = from, to, self.score.score
+    score:init(str_orig, from)
+    local last = from ---@type number?
+    for i = 2, n do
+      -- Every start moves right, so each greedy suffix position is monotone. If
+      -- its previous position still follows this prefix, it remains the first
+      -- possible match. Do not search the same long gap for every start byte.
+      local cached = best_from and matches[i]
+      last = cached and cached > last and cached or string.find(str, pattern[i], last + 1, true)
+      if not last then
+        break
+      end
+      matches[i] = last
+      score:update(last)
     end
-    from, to = self:fuzzy_find(str, str_orig, pattern, from + 1, matches)
+    if not last then
+      break
+    end
+    if not best_from or score.score > best_score then
+      best_score, best_from, best_to = score.score, from, last
+    end
+    from = string.find(str, first, from + 1, true)
   end
-  return best_score, best_from, best_to, str
+  if best_from then
+    return best_score, best_from, best_to, str
+  end
 end
 
 return M

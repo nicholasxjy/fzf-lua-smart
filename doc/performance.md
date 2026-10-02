@@ -9,7 +9,8 @@ nvim --headless -u tests/minimal.lua -l scripts/benchmark.lua
 ```
 
 The core benchmark uses deterministic 10,000/100,000-item inputs, one warm-up
-and three measured iterations. Each JSON record reports the median duration,
+and three measured iterations. It covers matching, sorting and display encoding
+(with and without match highlights). Each JSON record reports the median duration,
 Lua allocations with GC paused during the measured operation, and a result
 checksum. Data generation and warm-up are outside the measurement. Sorting
 includes a final order check. Allocation counts are **not** process RSS or
@@ -24,11 +25,63 @@ Unlike core measurements, these include
 scheduler/IO delays and garbage collection. Run comparisons on the same machine,
 Neovim, fzf and fzf-lua versions without concurrent tests or benchmarks.
 
-## Example comparison
+## Example comparisons
+
+### Scheduling, output and JIT-friendly hot paths
+
+Local macOS arm64 / Neovim 0.13-dev / fzf 0.74 measurements, comparing commit
+`3ee1c48` against the current implementation in alternating processes with
+identical inputs. Each value is the median of three processes, each reporting
+the median of three warm iterations; all result checksums (including the
+SHA-256 of every display entry) agree.
+
+| Core operation | Candidates | Before | After |
+| --- | ---: | ---: | ---: |
+| Fuzzy `flua` | 100,000 | 21.01 ms | 11.75 ms |
+| Regex `file.*lua` | 100,000 | 53.29 ms | 47.76 ms |
+| Stable sort, ordered | 100,000 | 19.69 ms | 5.80 ms |
+| Stable sort, reversed | 100,000 | 95.94 ms | 34.52 ms |
+| Stable sort, mixed | 100,000 | 150.65 ms | 35.95 ms |
+| Display encoding, empty query | 100,000 | 448.03 ms | 342.53 ms |
+| Display encoding, highlighted `file9` | 100,000 | 1726.86 ms | 730.10 ms |
+| Fuzzy `ab`, repeated 2,048-byte prefix | 1,000 | 97.87 ms | 26.07 ms |
+
+Highlighted display encoding allocates 231 MiB instead of 501 MiB of Lua
+memory for 100,000 entries. The end-to-end benchmark (time until fzf shows the
+complete count) fell from about 1.14 s to 0.64–0.74 s for 100,000 candidates
+and from 156 to about 128 ms for 10,000; scanning fell from about 172 to 90 ms.
+Live Lua memory after the query reload settles at the same level as before.
+Right after the engine publishes EOF it can be higher while fzf still reads
+queued pipe writes, because output is now produced faster.
+
+The main changes:
+
+- Task time slices resume through a zero-delay timer. It still returns to
+  libuv (input, timers and redraws run between slices) but no longer idles
+  1–2 ms after every 2 ms of work.
+- Output is written in batches of 512 entries through fzf-lua's line-batch
+  writer instead of one pipe write and callback per entry.
+- Display encoding reuses one render table, copies unmatched text in runs
+  instead of re-slicing the remainder at every byte, and only runs the
+  control-byte escapes when a line contains such a byte.
+- Sorting uses binary insertion for 32-item runs before merging, and the
+  comparator is a chain of loop-free per-field closures.
+- The fuzzy matcher keeps its start and character loops in one function.
+  Previously LuaJIT repeatedly aborted traces through the call and could
+  blacklist the matching path, which made timings vary by up to 10× between
+  processes.
+- Finder lines are split without a pattern substitution per line, file paths
+  skip `vim.fs.normalize` unless they start with `~`, and native filtering
+  only computes display paths when `cwd_only` or ignore patterns need them.
+- Recent files read buffer `lastused` once per buffer instead of twice per
+  comparison, and history visits read one live entry instead of copying the
+  whole SQLite history on every `BufWinEnter`.
+
+### Matching, sorting and lifecycle
 
 Local macOS arm64 / Neovim 0.13-dev measurements, comparing original commit
-`2099298` against the optimized implementation in consecutive processes with
-identical inputs. Times are medians of three warm iterations; all result
+`2099298` against the optimized implementation `3ee1c48` in consecutive
+processes with identical inputs. Times are medians of three warm iterations; all result
 checksums agree. These are examples, not machine-independent latency promises.
 
 | Core operation | Candidates | Before | After |
@@ -62,7 +115,7 @@ removing the redundant flat-file reset pass requires avoiding nil writes to
 absent `match_topk` fields, which otherwise expand full LuaJIT hash tables on
 subsequent queries.
 
-The final 64-test suite passes locally with the pinned fzf-lua on Neovim
+The 64-test suite at `3ee1c48` passed locally with the pinned fzf-lua on Neovim
 0.13-dev, the minimum Neovim 0.11 / fzf 0.59 combination, and the existing local
 fzf-lua `main` checkout. This is not a substitute for the Linux/macOS CI matrix.
 
@@ -75,6 +128,13 @@ fzf-lua `main` checkout. This is not a substitute for the Linux/macOS CI matrix.
 - Keep a full stable sort with no top-N truncation. Comparators must define a
   consistent strict weak ordering; ties preserve source enumeration order.
 - Keep yielding to Neovim during matching and sorting so input can cancel work.
+  Return to libuv between slices (a timer, not a scheduled-callback chain), but
+  do not add idle delay.
+- Keep functions called from per-candidate loops free of inner loops, closures
+  over returned locals and per-call `require`; LuaJIT aborts or blacklists such
+  traces, which is slower and nondeterministic.
+- Write output in batches. Keep per-candidate work proportional to the entry,
+  without per-byte substring copies or unconditional `gsub` passes.
 - Treat collected candidates and retained parents as engine-owned transient
   state. A closed/hidden picker can rescan on resume instead of retaining that
   state through fzf-lua's saved options.

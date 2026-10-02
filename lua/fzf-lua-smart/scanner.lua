@@ -163,7 +163,7 @@ function M.run(command, cwd, task, emit, yield)
   end
   while not done or head <= #chunks do
     while head <= #chunks do
-      local data = pending .. chunks[head]
+      local data = pending == "" and chunks[head] or pending .. chunks[head]
       chunks[head], head, pending = false, head + 1, ""
       local from = 1
       while true do
@@ -172,8 +172,11 @@ function M.run(command, cwd, task, emit, yield)
           pending = data:sub(from)
           break
         end
-        local line = data:sub(from, last - 1):gsub("\r$", "")
-        send(line)
+        local stop = last - 1
+        if stop >= from and data:byte(stop) == 13 then
+          stop = stop - 1 -- CRLF
+        end
+        send(data:sub(from, stop))
         from = last + 1
         yield()
       end

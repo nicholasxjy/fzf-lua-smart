@@ -6,16 +6,22 @@ end
 -- Alias normalization happens before, never after, precedence merging.
 function M.layer(value)
   local o = copy(value or {})
-  for k, v in pairs(copy(o)) do
+  -- Collect dotted keys first; expanding them mutates the table being iterated.
+  local dotted = {}
+  for k in pairs(o) do
     if type(k) == "string" and k:find(".", 1, true) then
-      local keys = vim.split(k, ".", { plain = true })
-      local dst = o
-      for i = 1, #keys - 1 do
-        dst[keys[i]] = dst[keys[i]] or {}
-        dst = dst[keys[i]]
-      end
-      dst[keys[#keys]], o[k] = v, nil
+      dotted[#dotted + 1] = k
     end
+  end
+  for _, k in ipairs(dotted) do
+    local v = o[k]
+    local keys = vim.split(k, ".", { plain = true })
+    local dst = o
+    for i = 1, #keys - 1 do
+      dst[keys[i]] = dst[keys[i]] or {}
+      dst = dst[keys[i]]
+    end
+    dst[keys[#keys]], o[k] = v, nil
   end
   for alias, native in pairs({ ignored = "no_ignore", dirs = "search_paths", finders = "multi" }) do
     if o[native] == nil and o[alias] ~= nil then

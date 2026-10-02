@@ -451,7 +451,9 @@ test("scheduled task yields return to libuv so input/timers can interrupt work",
   )
   local Task = require("fzf-lua-smart.task")
   Task.new(function()
-    for _ = 1, 30 do
+    -- Yielding must let the timer run; a starving chain never observes a tick.
+    local start = vim.uv.hrtime()
+    while ticks < 3 and vim.uv.hrtime() - start < 2e9 do
       Task.yield()
     end
     done = true
@@ -477,5 +479,78 @@ test("callback refresh requests do not recursively reuse a one-shot reload pipe"
   eq(calls, 1)
   eq(e.force, true)
   eq(#e.results, 1)
+  e:close()
+end)
+test("engine line batches match per-entry output and superseded requests stop writing", function()
+  local list = vim.fn.tempname()
+  local lines = {}
+  for i = 1, 1300 do
+    lines[i] = ("f%04d.lua"):format(i)
+  end
+  vim.fn.writefile(lines, list)
+  local function engine()
+    return require("fzf-lua-smart.engine").new(require("fzf-lua-smart.config").resolve({
+      cwd = fixture,
+      multi = { "files" },
+      file_icons = false,
+      matcher = { frecency = false },
+      raw_cmd = "cat " .. vim.fn.shellescape(list),
+    }))
+  end
+  local function collect(e, query, batched, writes)
+    local out, done = {}, false
+    local function sink(entry, cb)
+      if entry then
+        out[#out + 1] = entry
+        writes[#writes + 1] = query
+        return cb and cb()
+      end
+      done = true
+    end
+    e:request(query, sink, batched and function(batch, cb)
+      assert(#batch > 0 and #batch <= 512, "invalid batch size")
+      for _, entry in ipairs(batch) do
+        sink(entry)
+      end
+      return cb and cb()
+    end or nil)
+    return out, function()
+      return done
+    end
+  end
+  for _, query in ipairs({ "", "f1" }) do
+    local a, b = engine(), engine()
+    local single, single_done = collect(a, query, false, {})
+    local batched, batched_done = collect(b, query, true, {})
+    wait(single_done)
+    wait(batched_done)
+    assert(#single > 512)
+    eq(batched, single)
+    a:close()
+    b:close()
+  end
+  local e, writes = engine(), {}
+  local stale = collect(e, "f", true, writes)
+  wait(function()
+    return #stale > 0
+  end)
+  local fresh, fresh_done = collect(e, "f12", true, writes)
+  wait(fresh_done)
+  eq(#fresh, #e.results)
+  local first = assert(vim.tbl_contains(writes, "f12") and #writes - #fresh + 1)
+  for i = first, #writes do
+    eq(writes[i], "f12", "superseded request wrote after the new request")
+  end
+  e:close()
+  vim.fn.delete(list)
+end)
+test("finder output splits CRLF lines without trailing carriage returns", function()
+  local e = run({ raw_cmd = "printf 'alpha.lua\\r\\nbeta.txt\\r\\nsub/init.lua'" })
+  eq(
+    vim.tbl_map(function(item)
+      return item.text
+    end, e.items),
+    { "alpha.lua", "beta.txt", "sub/init.lua" }
+  )
   e:close()
 end)

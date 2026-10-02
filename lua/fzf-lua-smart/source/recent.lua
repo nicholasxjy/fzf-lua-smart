@@ -1,6 +1,7 @@
 -- Derived from folke/snacks.nvim, commit 882c996cf28183f4d63640de0b4c02ec886d01f2.
 -- Apache-2.0; see licenses/snacks-Apache-2.0.txt.
--- Modified: standalone module names and search-only host integration.
+-- Modified: standalone module names, search-only host integration and buffer
+-- lastused lookups hoisted out of the sort comparator.
 local M = {}
 
 local uv = vim.uv or vim.loop
@@ -38,8 +39,13 @@ function M.files(opts, ctx)
   local bufs = vim.tbl_filter(function(b)
     return vim.api.nvim_buf_get_name(b) ~= "" and vim.bo[b].buftype == ""
   end, vim.api.nvim_list_bufs())
+  -- Read buffer info once per buffer, not twice per comparison.
+  local lastused = {} ---@type table<number, number>
+  for _, b in ipairs(bufs) do
+    lastused[b] = vim.fn.getbufinfo(b)[1].lastused
+  end
   table.sort(bufs, function(a, b)
-    return vim.fn.getbufinfo(a)[1].lastused > vim.fn.getbufinfo(b)[1].lastused
+    return lastused[a] > lastused[b]
   end)
   local extra = vim.tbl_map(function(b)
     return vim.api.nvim_buf_get_name(b)

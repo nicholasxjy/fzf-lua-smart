@@ -51,37 +51,45 @@ local function match_color(opts)
   return #color > 0 and table.concat(color) or "\27[1m"
 end
 
+-- Non-empty path components and their byte offsets, as gmatch("()([^/]+)").
 local function components(file)
-  local parts = {}
-  for at, text in file:gmatch("()([^/]+)") do
-    parts[#parts + 1] = { at = at, text = text }
+  local ats, texts, at, size = {}, {}, 1, #file
+  while at <= size do
+    local slash = file:find("/", at, true) or size + 1
+    if slash > at then
+      ats[#ats + 1], texts[#texts + 1] = at, file:sub(at, slash - 1)
+    end
+    at = slash + 1
   end
-  return parts
+  return ats, texts
 end
 
 local function highlight(display, shown, item, matcher, opts)
   local file = item.file or item.text
   local path = require("fzf-lua.path")
-  local source, visible = components(file), components(shown)
+  local source_at, source = components(file)
+  local visible_at, visible = components(shown)
   local mapped = {}
   -- Align from the filename so cwd removal and shortened directories retain
   -- their source byte positions, including repeated directory names.
   for n = 0, math.min(#source, #visible) - 1 do
     local a, b = source[#source - n], visible[#visible - n]
-    local shortened = n > 0 and opts.path_shorten and path.shorten(a.text .. "/", tonumber(opts.path_shorten))
-    if a.text ~= b.text and shortened ~= b.text .. "/" then
+    if
+      a ~= b and not (n > 0 and opts.path_shorten and path.shorten(a .. "/", tonumber(opts.path_shorten)) == b .. "/")
+    then
       break
     end
-    for p = 0, #b.text - 1 do
-      mapped[b.at + p] = a.at + p
+    local a_at, b_at = source_at[#source - n], visible_at[#visible - n]
+    for p = 0, #b - 1 do
+      mapped[b_at + p] = a_at + p
     end
-    if a.at > 1 and b.at > 1 then
-      mapped[b.at - 1] = a.at - 1
+    if a_at > 1 and b_at > 1 then
+      mapped[b_at - 1] = a_at - 1
     end
   end
 
-  local u = require("fzf-lua.utils")
-  local plain = u.strip_ansi_coloring(display)
+  -- Only escape sequences (ESC or 8-bit CSI) can make the plain text differ.
+  local plain = display:find("[\27\155]") and require("fzf-lua.utils").strip_ansi_coloring(display) or display
   if opts.formatter == "path.filename_first" then
     local tail, parent = path.tail(shown), path.parent(shown)
     if parent then
@@ -123,39 +131,80 @@ local function highlight(display, shown, item, matcher, opts)
     end
   end
   local color = opts.__smart_match_color or match_color(opts)
-  local out, i, byte = {}, 1, 1
+  -- Copy unmatched text and ANSI sequences in runs; only matches are rebuilt.
+  local out, i, byte, from, size = {}, 1, 1, 1, #display
   local active = ""
-  while i <= #display do
-    local ansi = display:sub(i):match("^\27%[[%d;]*m")
+  while i <= size do
+    local lead = display:byte(i)
+    local ansi = lead == 27 and display:match("^\27%[[%d;]*m", i)
     if ansi then
-      out[#out + 1] = ansi
       -- Replay the formatter's active style after a match resets ANSI state.
       active = (ansi == "\27[0m" or ansi == "\27[m") and "" or active .. ansi
       i = i + #ansi
     else
       -- Color complete UTF-8 characters, not individual continuation bytes.
-      local lead = display:byte(i)
       local len = lead < 128 and 1 or lead < 224 and 2 or lead < 240 and 3 or 4
       local hit = false
       for p = byte, byte + len - 1 do
         hit = hit or wanted[mapped[p]]
       end
-      local char = display:sub(i, i + len - 1)
-      out[#out + 1] = hit and color .. char .. "\27[0m" .. active or char
+      if hit then
+        out[#out + 1] = display:sub(from, i - 1)
+        out[#out + 1] = color .. display:sub(i, i + len - 1) .. "\27[0m" .. active
+        from = i + len
+      end
       i, byte = i + len, byte + len
     end
   end
+  out[#out + 1] = display:sub(from)
   return table.concat(out)
 end
+
+-- make_entry.file is synchronous: one reusable render table reads the entry
+-- being rendered from these upvalues instead of a per-item table and closure.
+local active_item, active_matcher
+local function new_highlighter(opts, format)
+  local render = setmetatable({
+    _fmt = {
+      to = function(shown, _, modules)
+        local text, postfix = shown, nil
+        if format and format.to then
+          text, postfix = format.to(shown, opts, modules)
+        end
+        return highlight(text, shown, active_item, active_matcher, opts), postfix
+      end,
+    },
+  }, { __index = opts })
+  opts.__smart_highlighter = { format = format, render = render }
+  return render
+end
+-- Kept free of closures: closing captured locals on return aborts LuaJIT traces.
+local function highlighter(opts, format)
+  local cached = opts.__smart_highlighter
+  if cached and cached.format == format then
+    return cached.render
+  end
+  return new_highlighter(opts, format)
+end
+
+local make_file, encode, nbsp
+local function escape(c)
+  return ("\\x%02x"):format(c:byte())
+end
 function M.entry(item, matcher, opts)
+  if not make_file then
+    make_file = require("fzf-lua.make_entry").file
+    encode = require("fzf-lua.lib.base64").encode
+    nbsp = require("fzf-lua.utils").nbsp
+  end
   local file = util.path(item) or item.text
-  local pos = item.pos or { 0, 0 }
-  local canonical = (item.buf and ("[" .. item.buf .. "]" .. require("fzf-lua.utils").nbsp) or "")
+  local pos = item.pos
+  local canonical = (item.buf and ("[" .. item.buf .. "]" .. nbsp) or "")
     .. file
     .. ":"
-    .. pos[1]
+    .. (pos and pos[1] or 0)
     .. ":"
-    .. (pos[2] + 1)
+    .. (pos and pos[2] + 1 or 1)
     .. ":"
   local render, format = opts, opts._fmt
   if
@@ -170,27 +219,17 @@ function M.entry(item, matcher, opts)
     opts.__smart_match_color = opts.__smart_match_color or match_color(opts)
     -- Intercept the native path after cwd/shortening transformations and before
     -- icons are attached. Custom formatter output has no source-position map.
-    render = setmetatable({
-      _fmt = {
-        to = function(shown, _, modules)
-          local text, postfix = shown, nil
-          if format and format.to then
-            text, postfix = format.to(shown, opts, modules)
-          end
-          return highlight(text, shown, item, matcher, opts), postfix
-        end,
-      },
-    }, { __index = opts })
+    render = highlighter(opts, format)
+    active_item, active_matcher = item, matcher
   end
-  local display = require("fzf-lua.make_entry").file(file, render) or file
-  -- Control bytes cannot be allowed to introduce transport fields or terminal commands.
-  display = display
-    :gsub("%z", "\\x00")
-    :gsub("[\1-\8\11\12\14-\26\28-\31]", function(c)
-      return ("\\x%02x"):format(c:byte())
-    end)
-    :gsub("\n", "␊")
-    :gsub("\r", "␍")
-  return require("fzf-lua.lib.base64").encode(canonical) .. sep .. display
+  local display = make_file(file, render) or file
+  active_item, active_matcher = nil, nil
+  -- Control bytes cannot be allowed to introduce transport fields or terminal
+  -- commands. Tab and ANSI escapes are formatter output; most lines have none.
+  if display:find("[%z\1-\8\10-\26\28-\31]") then
+    display =
+      display:gsub("%z", "\\x00"):gsub("[\1-\8\11\12\14-\26\28-\31]", escape):gsub("\n", "␊"):gsub("\r", "␍")
+  end
+  return encode(canonical) .. sep .. display
 end
 return M
