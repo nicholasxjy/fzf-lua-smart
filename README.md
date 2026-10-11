@@ -212,6 +212,8 @@ Native options are inherited from your effective fzf-lua configuration. The valu
 | `actions`, `keymap` | native fzf-lua types | inherited | Native selection actions and UI keymaps. |
 | `fzf_colors`, `fzf_opts` | native fzf-lua types | inherited | Native color/UI options, except reserved matching/sorting/transport controls. |
 
+Highlight groups are inherited from the native `files` picker, including all 14 `hls.fzf` groups when `fzf_colors=true`. Input uses the files query color and styles even during live refresh. Match spans use `hls.fzf.match` / `fzf_colors.hl`; separate `hl+` styling cannot recolor those ANSI spans on focus changes. See the [highlight compatibility details](doc/compatibility.md#files-highlight-groups) for override and fallback limits.
+
 The plugin owns fzf matching, sorting, reloads and transport (`--disabled`, `--no-sort`, `--read0`, `--print0`, delimiter and hidden identity fields). Conflicting options or bindings such as `toggle-sort`, `enable-search`, and custom `reload` bindings are rejected. Native reload actions remain supported. `fn_reload`, `fn_transform`, `fn_preprocess`, and `fn_postprocess` are reserved; use `transform` for candidate changes.
 
 See `:help fzf-lua-smart` and [compatibility notes](doc/compatibility.md) for preserved upstream quirks and callback boundaries. Reproducible benchmarks and optimization constraints are documented in [performance checks](doc/performance.md).

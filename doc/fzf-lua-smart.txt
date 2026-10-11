@@ -135,7 +135,7 @@ callbacks through fzf-lua; Snacks window, preview and action APIs are unsupporte
 3. Search and compatibility                          *fzf-lua-smart-search*
 
 Snacks baseline: 882c996cf28183f4d63640de0b4c02ec886d01f2
-fzf-lua baseline: 05e44d38de0a79c11fba5f7bf8138791b1dbdd1e
+fzf-lua baseline: 48d7c3db291a2c7c1825905c227a6bc81c83b837
 
 The matcher and comparator are ported, not approximated. Empty input sorts
 by default; matcher.sort_empty=false preserves candidate enumeration order.
@@ -210,6 +210,20 @@ use this decoder. Matcher highlights use the native FzfLuaFzfMatch foreground
 (or hls.fzf.match / fzf_colors.hl), including the built-in path.filename_first
 and path.dirname_first formatters and shortened paths. Only visible source
 characters are highlighted. Custom formatter text is not guessed/highlighted.
+
+All window, preview, path/icon and hls.fzf groups are inherited from files.
+With fzf_colors=true, the native terminal groups cover normal, cursorline,
+match, border, scrollbar, separator, gutter, header, info, pointer, marker,
+spinner, prompt and query. The query uses FzfLuaFzfQuery with regular, or the
+configured fzf_colors.query color/styles; live refresh does not replace it
+with FzfLuaLivePrompt. User query CLI overrides keep native precedence.
+
+Upstream maps both hl and hl+ to FzfLuaFzfMatch; it has no separate selected
+match group. Smart match spans use a fixed ANSI foreground, so independently
+configured hl+ cannot recolor them on focus changes. Raw --color match overrides,
+fzf theme fallbacks without an hl mapping, and selected-row style composition
+are not fully reproduced. Use fzf_colors=true with hls.fzf.match, or configure
+fzf_colors.hl directly, for matching foregrounds consistent with files.
 
 ==============================================================================
 5. Independent history                              *fzf-lua-smart-history*

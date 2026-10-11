@@ -204,6 +204,18 @@ end)
 
 test("real fzf match colors agree with files on both rows and update with the query", function()
   vim.api.nvim_set_hl(0, "SmartIntegrationMatch", { fg = "#112233" })
+  vim.api.nvim_set_hl(0, "SmartIntegrationQuery", { fg = "#778899" })
+  vim.api.nvim_set_hl(0, "SmartIntegrationLive", { fg = "#aabbcc" })
+  local function query_cell(win)
+    for row, line in ipairs(vim.api.nvim_buf_get_lines(win.fzf_bufnr, 0, -1, false)) do
+      local prompt = line:find("PARITY> ", 1, true)
+      if prompt then
+        vim.cmd("redraw!")
+        local pos = vim.fn.screenpos(win.fzf_winid, row, prompt + #"PARITY> ")
+        return vim.api.nvim__inspect_cell(1, pos.row - 1, pos.col - 1)[2]
+      end
+    end
+  end
   local function cells(win, word)
     local colors = {}
     for row, line in ipairs(vim.api.nvim_buf_get_lines(win.fzf_bufnr, 0, -1, false)) do
@@ -227,13 +239,15 @@ test("real fzf match colors agree with files on both rows and update with the qu
       file_icons = false,
       matcher = { frecency = false },
       query = smart and "file:lua" or "lua",
+      prompt = "PARITY> ",
+      cwd_prompt = false,
       formatter = "path.filename_first",
       path_shorten = 1,
       previewer = false,
       -- Split windows let the headless test inspect the actual terminal cells.
       winopts = { split = "belowright new", treesitter = false },
-      fzf_colors = true,
-      hls = { fzf = { match = "SmartIntegrationMatch" } },
+      fzf_colors = { true, query = { "fg", "SmartIntegrationQuery", "regular", "underline" } },
+      hls = { fzf = { match = "SmartIntegrationMatch" }, live_prompt = "SmartIntegrationLive" },
     })
     local win = require("fzf-lua.win").__SELF()
     wait(function()
@@ -241,6 +255,16 @@ test("real fzf match colors agree with files on both rows and update with the qu
       return lines:find("alpha.lua", 1, true) and lines:find("init.lua", 1, true)
     end)
     eq(cells(win, "lua"), { 0x112233, 0x112233 })
+    assert(
+      vim.wait(3000, function()
+        return query_cell(win) ~= nil
+      end, 10),
+      vim.inspect(vim.api.nvim_buf_get_lines(win.fzf_bufnr, 0, -1, false))
+    )
+    local query = assert(query_cell(win))
+    eq(query.foreground, 0x778899, "files query color must survive live reload setup")
+    eq(query.underline, true, "explicit query styles must survive live reload setup")
+    assert(not query.bold, "query regular must clear the default bold style")
     if smart then
       send(win, "\21file:init")
       wait(function()
@@ -253,6 +277,7 @@ test("real fzf match colors agree with files on both rows and update with the qu
       end)
       eq(cells(win, "init"), { 0x112233 })
       assert(cells(win, "lua")[1] ~= 0x112233, "old match colors must be removed on reload")
+      eq(query_cell(win), query, "query styling must survive input changes")
     end
     send(win, "\3")
     wait(function()

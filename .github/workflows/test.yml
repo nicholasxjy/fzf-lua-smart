@@ -8,7 +8,7 @@ jobs:
         os: [ubuntu-latest, macos-latest]
         neovim: [v0.11.0, stable]
         fzf: ['0.59.0', latest]
-        fzf-lua: [05e44d38de0a79c11fba5f7bf8138791b1dbdd1e, main]
+        fzf-lua: [48d7c3db291a2c7c1825905c227a6bc81c83b837, main]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4

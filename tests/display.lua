@@ -84,6 +84,16 @@ test("display respects fzf match color overrides and leaves custom formatter out
   eq(display, "custom alpha.lua")
 end)
 
+test("display handles terminal-default foreground and resets explicit match styles", function()
+  local _, display = render("alpha.lua", "alpha", { fzf_colors = { hl = "-1" } })
+  assert(display:find("\27[39ma\27[0m", 1, true), "-1 must select terminal-default foreground")
+  assert(not display:find("\27[1m", 1, true), "-1 must not become a bold fallback")
+  _, display = render("alpha.lua", "alpha", {
+    fzf_colors = { hl = "#123456:italic:underline:reverse:regular:strong" },
+  })
+  assert(display:find("\27[22;23;24;25;27;29m\27[1ma", 1, true), "regular must clear preceding styles")
+end)
+
 test("display escapes transport/terminal control bytes and decodes the full record", function()
   local file = "ctl\31x/a\1b\tc\rd\ne.lua"
   for _, query in ipairs({ "", "ae" }) do

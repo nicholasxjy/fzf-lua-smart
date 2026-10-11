@@ -3,7 +3,7 @@
 ## Baselines and evidence
 
 - Snacks: `882c996cf28183f4d63640de0b4c02ec886d01f2`.
-- fzf-lua: `05e44d38de0a79c11fba5f7bf8138791b1dbdd1e`.
+- fzf-lua: `48d7c3db291a2c7c1825905c227a6bc81c83b837`.
 - Snacks is Apache-2.0 at this revision. The initial design's MIT assumption was
   corrected from the actual source license before porting.
 - Tests import Snacks only from the ignored development checkout. Production
@@ -148,6 +148,49 @@ upstream UI heap/tail. Scores and matcher positions remain exact.
 - Default file command output is line-delimited, like inherited fzf files
   commands. Control/newline path display is escaped; custom finder commands
   must emit one filename per line (not NUL-separated records).
+
+## files highlight groups
+
+All `hls` names, defaults, links and overrides come from fzf-lua's native files
+normalization on every invocation. Window, preview, path, git and file-icon
+highlights remain under native control. With `fzf_colors=true`, the complete
+native terminal mapping is retained:
+
+| `hls.fzf` key | Default group | fzf colors |
+| --- | --- | --- |
+| `normal` | `FzfLuaFzfNormal` | `fg`, `bg` |
+| `cursorline` | `FzfLuaFzfCursorLine` | `fg+`, `bg+` |
+| `match` | `FzfLuaFzfMatch` | `hl`, `hl+` |
+| `border` | `FzfLuaFzfBorder` | `border` |
+| `scrollbar` | `FzfLuaFzfScrollbar` | `scrollbar` |
+| `separator` | `FzfLuaFzfSeparator` | `separator` |
+| `gutter` | `FzfLuaFzfGutter` | `gutter` (background) |
+| `header` | `FzfLuaFzfHeader` | `header` |
+| `info` | `FzfLuaFzfInfo` | `info` |
+| `pointer` | `FzfLuaFzfPointer` | `pointer` |
+| `marker` | `FzfLuaFzfMarker` | `marker` |
+| `spinner` | `FzfLuaFzfSpinner` | `spinner` |
+| `prompt` | `FzfLuaFzfPrompt` | `prompt` |
+| `query` | `FzfLuaFzfQuery` | `query` with `regular` |
+
+Native `fg+` falls back from cursorline to normal foreground. Query styling
+follows files, including explicit colors/styles, false or unresolved mappings,
+and user CLI override precedence. The internal live reload transport does not
+switch query styling to `FzfLuaLivePrompt`. No global highlights are changed.
+`tests/highlights.lua` compares every inherited group and the effective palette;
+real terminal tests inspect match and query cells against native files.
+
+Match positions come from the smart matcher and are rendered as ANSI spans.
+Their foreground uses `fzf_colors.hl`, falling back to `hls.fzf.match`; explicit
+styles, indexed/RGB colors and `-1` are accepted. Upstream has no separate
+`FzfLuaFzfMatchSelected` group: automatic `hl` and `hl+` use the same group.
+Distinct `fzf_colors["hl+"]` styling cannot change these static spans when focus
+moves. fzf's own theme fallback (when `hl` is absent/false), raw `--color`
+overrides for match spans, and selected-row style composition are not fully
+reproduced. Use `fzf_colors=true` and `hls.fzf.match`, or an explicit
+`fzf_colors.hl`, for consistent match foregrounds. Other UI colors still use
+native fzf resolution. Custom formatters without a source-position mapping
+remain unhighlighted.
 
 ## Search context, not UI emulation
 

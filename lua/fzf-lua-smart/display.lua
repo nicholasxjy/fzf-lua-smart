@@ -11,6 +11,23 @@ function M.decode(entry)
   end
   return require("fzf-lua.lib.base64").decode(token)
 end
+-- fzf_live replaces query with hls.live_prompt. A smart files picker needs
+-- files' query color (including explicit styles and an omitted/false mapping).
+-- Emit that one color before user CLI overrides, and leave the live group
+-- unresolved so the native live transport cannot add a different query color.
+local function setup_colors(opts)
+  local query = require("fzf-lua.core").create_fzf_colors({
+    __FZF_VERSION = opts.__FZF_VERSION,
+    fzf_colors = { query = (opts.fzf_colors or {}).query },
+  })
+  if query then
+    local args = { "--color=" .. require("fzf-lua.libuv").shellescape(query) }
+    vim.list_extend(args, type(opts.fzf_args) == "table" and opts.fzf_args or { opts.fzf_args })
+    opts.fzf_args = args
+  end
+  opts.hls = vim.tbl_extend("force", {}, opts.hls, { live_prompt = false })
+end
+
 function M.setup(opts)
   local format = opts._fmt
   local render = vim.tbl_extend("force", {}, opts, {
@@ -19,6 +36,7 @@ function M.setup(opts)
     cwd_only = false,
     ignore_current_file = false,
   })
+  setup_colors(opts)
   opts._fmt = { from = M.decode }
   -- Identity decoding returns the full path; never lengthen a shortened guess.
   opts.path_shorten = false
@@ -38,14 +56,25 @@ local function match_color(opts)
     __FZF_VERSION = opts.__FZF_VERSION,
     fzf_colors = { hl = (opts.fzf_colors or {}).hl or { "fg", hl } },
   })
-  local styles =
-    { bold = 1, dim = 2, italic = 3, underline = 4, blink = 5, reverse = 7, strikethrough = 9, regular = 22 }
+  local styles = {
+    bold = "1",
+    strong = "1",
+    dim = "2",
+    italic = "3",
+    underline = "4",
+    blink = "5",
+    reverse = "7",
+    strikethrough = "9",
+    regular = "22;23;24;25;27;29",
+  }
   local color = {}
   for part in (spec or ""):gmatch("[^:]+") do
-    if part:match("^#%x%x%x%x%x%x$") or tonumber(part) and tonumber(part) >= 0 then
+    if part == "-1" then
+      color[#color + 1] = "\27[39m"
+    elseif part:match("^#%x%x%x%x%x%x$") or tonumber(part) and tonumber(part) >= 0 then
       color[#color + 1] = u.ansi_from_rgb(part, ""):gsub("\27%[0m$", "")
     elseif styles[part] then
-      color[#color + 1] = ("\27[%dm"):format(styles[part])
+      color[#color + 1] = ("\27[%sm"):format(styles[part])
     end
   end
   return #color > 0 and table.concat(color) or "\27[1m"
