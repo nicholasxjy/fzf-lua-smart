@@ -46,6 +46,19 @@ end
 function M.setup(opts)
   assert(opts == nil or type(opts) == "table", "setup expects a table")
   M.defaults = M.layer(opts)
+  M.track()
+end
+
+-- Startup visit tracking follows plugin setup only; per-call options start later.
+function M.track()
+  local frecency = require("fzf-lua-smart.vendor.frecency")
+  local db, matcher = M.defaults.db or {}, M.defaults.matcher or {}
+  if db.track_on_startup == false or matcher.frecency == false then
+    frecency.untrack()
+  elseif not frecency.store then
+    frecency.opts = db
+    frecency.track()
+  end
 end
 
 function M.algorithm_defaults()

@@ -1,7 +1,7 @@
 -- Derived from folke/snacks.nvim, commit 882c996cf28183f4d63640de0b4c02ec886d01f2.
 -- Apache-2.0; see licenses/snacks-Apache-2.0.txt.
--- Modified: standalone module names, search-only host integration and live
--- single-entry reads for visits.
+-- Modified: standalone module names, search-only host integration, live
+-- single-entry reads for visits and optional visit tracking from startup.
 -- Frecency based on exponential decay. Roughly based on:
 -- https://wiki.mozilla.org/User:Jesse/NewFrecency?title=User:Jesse/NewFrecency
 ---@class fzf_lua_smart.Frecency
@@ -29,8 +29,21 @@ local MAX_STORE_SIZE = 10000
 ---@type fzf_lua_smart.frecency.Store?
 M.store = nil
 
+-- Visits recorded by startup tracking before the store is opened.
+---@type {file:string, buf:number, time:number, value?:number}[]?
+M.pending = nil
+local STARTUP_GROUP = "fzf_lua_smart_frecency_startup"
+
+local function on_win_enter(ev)
+  if vim.api.nvim_win_get_config(vim.api.nvim_get_current_win()).relative == "" then
+    M.visit_buf(ev.buf)
+  end
+end
+
 function M.setup()
   M.store = require("fzf-lua-smart.store").open(M.opts or {})
+  local pending = M.pending
+  M.untrack()
   local group = vim.api.nvim_create_augroup("fzf_lua_smart_frecency", { clear = true })
   vim.api.nvim_create_autocmd("ExitPre", {
     group = group,
@@ -41,16 +54,46 @@ function M.setup()
       end
     end,
   })
-  vim.api.nvim_create_autocmd("BufWinEnter", {
+  vim.api.nvim_create_autocmd("BufWinEnter", { group = group, callback = on_win_enter })
+  local queued = M.replay(pending)
+  -- Existing buffers get one visit, unless startup tracking already queued one.
+  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+    if not queued[vim.api.nvim_buf_get_name(buf)] then
+      M.visit_buf(buf)
+    end
+  end
+end
+
+--- Record visits from startup without opening the store. They are queued and
+--- replayed at their own times when the store is first opened: by the first
+--- picker, or on exit when no picker was opened.
+function M.track()
+  if M.store or M.pending then
+    return
+  end
+  M.pending = {}
+  local group = vim.api.nvim_create_augroup(STARTUP_GROUP, { clear = true })
+  vim.api.nvim_create_autocmd("BufWinEnter", { group = group, callback = on_win_enter })
+  vim.api.nvim_create_autocmd("ExitPre", {
     group = group,
-    callback = function(ev)
-      if vim.api.nvim_win_get_config(vim.api.nvim_get_current_win()).relative == "" then
-        M.visit_buf(ev.buf)
+    callback = function()
+      local pending = M.pending
+      M.untrack()
+      if pending and #pending > 0 and not M.store then
+        M.store = require("fzf-lua-smart.store").open(M.opts or {})
+        M.replay(pending)
+        M.store:close()
+        M.store = nil
       end
     end,
   })
-  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
-    M.visit_buf(buf)
+end
+
+--- Stop startup tracking and discard visits that were not written yet.
+function M.untrack()
+  if M.pending then
+    M.pending = nil
+    pcall(vim.api.nvim_del_augroup_by_name, STARTUP_GROUP)
   end
 end
 
@@ -174,6 +217,10 @@ function M.visit_buf(buf, value)
   if file == "" or not vim.uv.fs_stat(file) then
     return
   end
+  if M.pending then
+    M.pending[#M.pending + 1] = { file = file, buf = buf, time = os.time(), value = value }
+    return true
+  end
   local frecency = live()
   frecency:visit({
     text = "",
@@ -184,6 +231,20 @@ function M.visit_buf(buf, value)
     info = vim.fn.getbufinfo(buf)[1],
   }, value)
   return true
+end
+
+--- Apply queued visits as if each had been recorded live at its own time.
+---@param pending? {file:string, buf:number, time:number, value?:number}[]
+---@return table<string, boolean> files
+function M.replay(pending)
+  local files = {} ---@type table<string, boolean>
+  for _, visit in ipairs(pending or {}) do
+    local frecency = live()
+    frecency.now = visit.time
+    frecency:visit({ text = "", idx = 1, score = 0, file = visit.file, buf = visit.buf }, visit.value)
+    files[visit.file] = true
+  end
+  return files
 end
 
 return M

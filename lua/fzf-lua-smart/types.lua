@@ -99,7 +99,7 @@
 ---@field rtp? boolean
 ---@field args? string[]
 ---@field finder_cmd? "fd"|"fdfind"|"rg"|"find"
----@field db? {sqlite3_path?:string}
+---@field db? {sqlite3_path?:string, track_on_startup?:boolean}
 ---@field line_query? boolean|fun(query:string):number?,string?
 ---@field multiprocess? boolean|1 True offloads matching; false/1 run in main instance
 return {}

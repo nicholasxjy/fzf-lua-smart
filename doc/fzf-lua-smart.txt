@@ -98,6 +98,7 @@ line_query                     Unspecified: respects matcher.file_pos;
 file_ignore_patterns           Additional native fzf-lua filtering
 ignore_current_file/cwd_only    Additional native fzf-lua filtering
 db.sqlite3_path                Optional SQLite shared-library path
+db.track_on_startup            true; record visits from startup (setup only)
 multiprocess                   false/1: main scheduled matching; true: headless
                                MessagePack matching worker with main control
 winopts/hls/prompt/icons        Native fzf-lua UI options
@@ -233,8 +234,12 @@ Directory: stdpath("data")/fzf-lua-smart/
   frecency.dat      otherwise, LuaJIT string.buffer KV encoding
 
 No Snacks database is read, imported or written. No SQLite plugin is required.
-Frecency initializes on first enabled use, visits existing qualified buffers,
-and registers BufWinEnter. Floating previews, unlisted/non-file buffers and
+Visits are recorded on BufWinEnter from startup. Until the store is first
+opened (first enabled use, or exit) they are queued in memory and then replayed
+at their own times; existing qualified buffers without a queued visit get one
+visit when the store opens. With db.track_on_startup=false, or
+matcher.frecency=false in setup(), frecency initializes on first enabled use
+instead, as upstream. Floating previews, unlisted/non-file buffers and
 nonexistent paths are excluded. Selection has no separate duplicate visit.
 
 30-day half-life; one point per visit; upstream recent/buffer seeds. Cleanup
