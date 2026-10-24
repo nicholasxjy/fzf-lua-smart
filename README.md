@@ -204,6 +204,7 @@ Native options are inherited from your effective fzf-lua configuration. The valu
 | --- | --- | --- | --- |
 | `multiprocess` | boolean or `1` | inherited; stock `1` | Only `true` enables a headless matching worker. `false` and `1` match in the main instance with scheduled yielding. |
 | `db.sqlite3_path` | string | unset | Optional SQLite shared-library path. Otherwise the library is loaded by name when available; KV storage is the fallback. Nothing is downloaded. |
+| `db.track_on_startup` | boolean | `true` | Record buffer visits from startup instead of from the first `smart()` call. Visits are queued in memory and written when the history store is first opened, or on exit. `setup()` only; also off when `setup()` sets `matcher.frecency = false`. |
 | `profile` | string or list | inherited | Load a native fzf-lua profile without changing global setup. |
 | `winopts`, `prompt`, `hls` | native fzf-lua types | inherited | Window layout, prompt and highlight settings. |
 | `previewer`, `preview` | native fzf-lua types | inherited | Native file preview settings. |

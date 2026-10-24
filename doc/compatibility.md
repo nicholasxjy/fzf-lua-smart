@@ -13,8 +13,9 @@ Derived files map to the same-named Snacks picker core/source modules;
 `vendor/sort.lua` and `vendor/transform.lua` come from picker root modules.
 `util.lua` contains only the upstream path/text/rtp/query-argument utilities.
 `sqlite.lua` retains upstream SQLite deadline representation but changes error
-and handle management. `vendor/frecency.lua` changes store creation and autocmd
-ownership, not score/deadline/seed/visit calculation. Matcher UI execution was
+and handle management. `vendor/frecency.lua` changes store creation, autocmd
+ownership and when visit recording starts, not score/deadline/seed/visit
+calculation. Matcher UI execution was
 removed; the adapter schedules search and supplies callback context.
 
 `tests/matcher.lua` compares parsed modifiers, sets, exact numeric scores,
@@ -233,6 +234,20 @@ scan, so no candidate cache needs to survive close. References intentionally
 retained by user callbacks remain the caller's responsibility.
 
 See [performance checks](performance.md) for reproducible benchmarks.
+
+## Visit recording from startup
+
+Upstream registers its BufWinEnter visit recorder lazily, on the first picker
+that enables frecency. Files opened earlier in the session get at most one
+visit then, and only if still listed. `plugin/fzf-lua-smart.lua` starts
+recording at startup instead (`db.track_on_startup`, default true). It only
+registers an autocmd: visits are queued in memory and the store is not opened.
+On first use the queue is replayed with each visit's own timestamp, so stored
+deadlines equal those of live recording; listed buffers without a queued visit
+get one visit, as with upstream's lazy setup. On exit without a picker, only the
+queue is written. Setting `db.track_on_startup = false` or
+`matcher.frecency = false` in `setup()` restores upstream timing; per-call
+options are applied too late to affect startup.
 
 ## Storage safety changes
 
